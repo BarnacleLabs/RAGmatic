@@ -1,0 +1,52 @@
+{
+  "name": "@ragmatic/monorepo",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^20.0.0 || >=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "homepage": "",
+  "repository": "",
+  "keywords": [],
+  "author": "daralthus",
+  "license": "MIT",
+  "version": "1.0.0",
+  "scripts": {
+    "preinstall": "npx only-allow pnpm",
+    "postinstall": "simple-git-hooks",
+    "format": "prettier --write --cache .",
+    "lint": "eslint --cache .",
+    "docs": "pnpm --filter=docs run docs",
+    "build": "pnpm -r --filter='./packages/*' run build",
+    "dev": "pnpm -r --parallel --filter='./packages/*' run dev",
+    "release": "tsx scripts/release.ts"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm format"
+  },
+  "packageManager": "pnpm@10.4.1",
+  "pnpm": {
+    "overrides": {
+      "ragmatic": "workspace:*"
+    },
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "ragmatic": "*"
+      }
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "eslint": "^8.57.1",
+    "prettier": "^3.5.1",
+    "prettier-plugin-embed": "^0.4.15",
+    "prettier-plugin-sql": "^0.18.1",
+    "simple-git-hooks": "^2.11.1",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.24.1"
+  },
+  "dependencies": {
+    "@types/winston": "^2.4.4"
+  }
+}

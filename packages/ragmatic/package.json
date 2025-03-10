@@ -1,0 +1,61 @@
+{
+  "name": "ragmatic",
+  "version": "0.0.4",
+  "description": "Automatically and continuously vectorize your PostgreSQL tables with the flexibility of your own embedding pipelines",
+  "type": "module",
+  "scripts": {
+    "build": "pkgroll",
+    "dev": "pkgroll --watch",
+    "test": "vitest run --reporter verbose",
+    "coverage": "vitest run --coverage --reporter verbose",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write src",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "postgres",
+    "pgvector",
+    "embeddings",
+    "openai",
+    "rag"
+  ],
+  "author": "daralthus",
+  "license": "MIT",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
+  "exports": {
+    "require": {
+      "types": "./dist/index.d.cts",
+      "default": "./dist/index.cjs"
+    },
+    "import": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "pg": "^8.13.1",
+    "pg-pool": "^3.7.0",
+    "winston": "^3.11.0",
+    "@types/pg": "^8.11.11"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vitest/coverage-v8": "^3.0.5",
+    "@vitest/ui": "^3.0.5",
+    "eslint": "^8.0.0",
+    "pkgroll": "^2.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,66 @@
+import { Tabs, Steps } from "nextra/components";
+
+# Welcome to Nextra
+
+Hello, world!
+
+```ts filename="my example" copy {1,4-5}
+import { useState } from "react";
+
+function Counter() {
+  const [count, setCount] = useState(0);
+  return <button onClick={() => setCount(count + 1)}>{count}</button>;
+}
+```
+
+```ansi
+[0m [0;32m✓[0m [0;2msrc/[0mindex[0;2m.test.ts (1)[0m
+  [0;2m Test Files [0m [0;1;32m1 passed[0;98m (1)[0m
+  [0;2m      Tests [0m [0;1;32m1 passed[0;98m (1)[0m
+  [0;2m   Start at [0m 23:32:41
+  [0;2m   Duration [0m 11ms
+  [42;1;39;0m PASS [0;32m Waiting for file changes...[0m
+         [0;2mpress [0;1mh[0;2m to show help, press [0;1mq[0;2m to quit
+```
+
+```sh npm2yarn
+npm i -D @graphql-eslint/eslint-plugin
+```
+
+```mermaid
+graph TD;
+subgraph AA [Consumers]
+A[Mobile app];
+B[Web app];
+C[Node.js client];
+end
+subgraph BB [Services]
+E[REST API];
+F[GraphQL API];
+G[SOAP API];
+end
+Z[GraphQL API];
+A --> Z;
+B --> Z;
+C --> Z;
+Z --> E;
+Z --> F;
+Z --> G;
+```
+
+<Steps>
+### Step 1
+ 
+Contents for step 1.
+ 
+### Step 2
+ 
+Contents for step 2.
+</Steps>
+
+ 
+<Tabs items={['pnpm', 'npm', 'yarn']} defaultIndex="1">
+  <Tabs.Tab>**pnpm**: Fast, disk space efficient package manager.</Tabs.Tab>
+  <Tabs.Tab>**npm** is a package manager for the JavaScript programming language.</Tabs.Tab>
+  <Tabs.Tab>**Yarn** is a software packaging system.</Tabs.Tab>
+</Tabs>

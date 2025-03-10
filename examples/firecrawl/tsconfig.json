@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "moduleDetection": "force",
+    "module": "Preserve",
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "target": "ES2020",
+    "moduleResolution": "node",
+    "lib": ["ES2021"],
+    "outDir": "./dist",
+    "rootDir": ".",
+    "strict": true,
+    "declaration": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["."],
+  "exclude": ["node_modules", "dist"]
+}

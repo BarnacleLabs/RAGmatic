@@ -1,0 +1,6 @@
+packages/*/CHANGELOG.md
+dist/
+LICENSE
+pnpm-lock.yaml
+pnpm-workspace.yaml
+docs/content/*.mdx

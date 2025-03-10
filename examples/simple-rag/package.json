@@ -1,0 +1,31 @@
+{
+  "name": "simple-rag-example",
+  "version": "1.0.0",
+  "description": "Example project using RAGmatic, OpenAI embeddings and llm-chunk",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "seed": "tsx seed.ts",
+    "setup": "tsx setup.ts",
+    "worker": "tsx worker.ts",
+    "search": "tsx search.ts",
+    "db:up": "docker compose -f docker-compose.yml up -d",
+    "db:down": "docker compose -f docker-compose.yml down"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.39.3",
+    "llm-chunk": "^0.0.1",
+    "openai": "^4.85.0",
+    "pg": "^8.13.1",
+    "ragmatic": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.18",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

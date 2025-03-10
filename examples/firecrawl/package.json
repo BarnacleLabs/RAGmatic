@@ -1,0 +1,33 @@
+{
+  "name": "firecrawl-example",
+  "version": "1.0.0",
+  "description": "Example project using RAGmatic, @mendable/firecrawl-js, and OpenAI for agentic RAG",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts",
+    "setup": "tsx setup.ts",
+    "worker": "tsx worker.ts",
+    "search": "tsx search.ts",
+    "db:up": "docker compose -f docker-compose.yml up -d",
+    "db:down": "docker compose -f docker-compose.yml down"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@inquirer/prompts": "^7.3.2",
+    "@mendable/firecrawl-js": "^1.18.2",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.39.3",
+    "llm-chunk": "^0.0.1",
+    "openai": "^4.85.4",
+    "ragmatic": "workspace:*",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.18",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
