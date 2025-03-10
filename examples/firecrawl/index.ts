@@ -492,7 +492,7 @@ async function main() {
     console.log("Processing pages in the background...");
 
     // Wait a bit for the worker to start processing
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    await new Promise((resolve) => setTimeout(resolve, 8000));
 
     let isProcessing = true;
     while (isProcessing) {
@@ -575,7 +575,7 @@ async function main() {
           result.chunks.forEach((chunk, i) => {
             console.log(`\n[Source ${i + 1}]`);
             console.log(`From: ${chunk.title} (${chunk.url})`);
-            console.log(`Content: ${chunk.chunkText?.substring(0, 200)}...`);
+            console.log(`Content: ${chunk.chunkText?.substring(100, 400)}...`);
           });
           break;
         }

@@ -20,23 +20,31 @@ This example demonstrates a complete RAG (Retrieval Augmented Generation) pipeli
 
 ## Setup
 
-1. Clone this repository
+1. Clone this repository:
+
+```bash
+pnpx degit BarnacleLabs/RAGmatic/examples/firecrawl firecrawl
+```
+
 2. Create a `.env` file based on `.env.example`
+
+```bash
+cp .env.example .env
+```
+
 3. Install dependencies:
 
 ```bash
 pnpm install
 ```
 
-4. Start the PostgreSQL database:
+4. Start the PostgreSQL database with docker compose:
 
 ```bash
 pnpm run db:up
 ```
 
-## Running the Example
-
-Simply run:
+5. Run the interactive example:
 
 ```bash
 pnpm start
@@ -45,8 +53,8 @@ pnpm start
 The interactive CLI will guide you through:
 
 1. Setting up the database
-2. Crawling a website of your choice
-3. Processing and embedding the content
+2. Crawling a website of your choice with firecrawl
+3. Processing and embedding the content with OpenAI
 4. Searching for information
 5. Asking questions using RAG
 
@@ -54,14 +62,13 @@ The interactive CLI will guide you through:
 
 1. The web crawler extracts content from pages and converts it to markdown
 2. Content is stored in a PostgreSQL database table
-3. RAGmatic processes documents and generates chunks
-4. OpenAI creates embeddings for these chunks
-5. Vector search finds relevant content for queries
-6. OpenAI's tool usage creates answers with source attribution
+3. RAGmatic generates embeddings for the content with OpenAI
+4. Vector search finds relevant content for queries
+5. OpenAI's tool usage creates answers with source attribution
 
 ## Advanced Features
 
 - **Tool usage**: The RAG system uses OpenAI's function calling to analyze and cite sources
-- **Background processing**: Worker runs in the background while you can interact with the system
+- **Background processing**: Workers run in the background while you interact with the database, keeping the embeddings up to date
 - **Source attribution**: Answers include references to the specific chunks used
 - **Interactive CLI**: Easy-to-use interface with Inquirer
