@@ -10,7 +10,7 @@ async function startWorker() {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   // Create pg-auto-rag tracker
-  const tracker = new Worker({
+  const worker = new Worker({
     connectionString: process.env.PG_CONNECTION_STRING!,
     trackerName: "default",
     // The worker will poll the database for new documents to process every 1 second
@@ -68,7 +68,7 @@ async function startWorker() {
   });
 
   // Start the worker to process embeddings
-  await tracker.start();
+  await worker.start();
 
   console.log("Worker started - processing embeddings in background");
   console.log("Press Ctrl+C to stop");

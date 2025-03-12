@@ -18,10 +18,9 @@ export const movies = pgTable("movies", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// RAGmatic will create this table.
+// RAGmatic will create this `chunks` table when you call ragmatic.setup, here we just define the schema so we can use drizzle to query the table.
 // The schema is for one tracker, so you can have multiple trackers for different embeddings of the same documents.
-// The schema name is configured with the `trackerName` option in the setup. Follows the pattern `ragmatic_${config.trackerName || 'default'}`
-// The table name is configured with the `chunksTable` option in the setup.
+// The schema name is configured with the `trackerName` option in the setup. Follows the pattern `ragmatic_${config.trackerName}`
 export const embeddingSchema = pgSchema("ragmatic_default");
 export const moviesChunks = embeddingSchema.table(
   "chunks",
