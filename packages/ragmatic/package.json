@@ -1,6 +1,6 @@
 {
   "name": "ragmatic",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Automatically and continuously vectorize your PostgreSQL tables with the flexibility of your own embedding pipelines",
   "type": "module",
   "scripts": {
