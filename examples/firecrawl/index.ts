@@ -2,18 +2,17 @@ import * as dotenv from "dotenv";
 import { input, select, confirm } from "@inquirer/prompts";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
-import { setup } from "ragmatic";
-import { Worker, ChunkData, EmbeddingData } from "ragmatic";
+import { RAGmatic, ChunkData, EmbeddingData } from "ragmatic";
 import { OpenAI } from "openai";
 import { chunk } from "llm-chunk";
 import FirecrawlApp from "@mendable/firecrawl-js";
-import { sitePages, sitePagesChunks } from "./schema";
-import { eq, cosineDistance, desc, asc, and, gt } from "drizzle-orm";
+import { sitePages, sitePagesChunks, SitePage } from "./schema";
+import { eq, cosineDistance, desc, gt } from "drizzle-orm";
 
 dotenv.config();
 
 // Create Drizzle instance for database operations
-const db = drizzle(process.env.PG_CONNECTION_STRING!);
+const db = drizzle(process.env.DATABASE_URL!);
 
 // Function to set up the database
 async function setupDatabase() {
@@ -35,16 +34,6 @@ async function setupDatabase() {
     `);
 
     console.log("Site pages table created successfully");
-
-    // Set up RAGmatic with the site_pages table
-    await setup({
-      connectionString: process.env.PG_CONNECTION_STRING!,
-      documentsTable: "site_pages",
-      trackerName: "firecrawl",
-      embeddingDimension: 1536,
-    });
-
-    console.log("RAGmatic setup complete");
   } catch (error) {
     console.error("Setup failed:", error);
     throw error;
@@ -133,41 +122,41 @@ async function startWorker() {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   // Create worker
-  const worker = new Worker({
-    connectionString: process.env.PG_CONNECTION_STRING!,
-    trackerName: "firecrawl",
-    pollingIntervalMs: 1000,
-    batchSize: 5,
-    maxRetries: 3,
-    initialRetryDelayMs: 1000,
-    // Chunk generator to split the page content into manageable chunks
-    chunkGenerator: async (doc: any): Promise<ChunkData[]> => {
-      console.log(`Chunking page: ${doc.title}`);
-      return chunk(doc.content, {
+  // Set up RAGmatic with the site_pages table
+  const ragmatic = await RAGmatic.create<SitePage>({
+    name: "firecrawl",
+    tableToWatch: "site_pages",
+    embeddingDimension: 1536,
+    connectionString: process.env.DATABASE_URL!,
+    recordToChunksFunction: async (
+      sitePage: SitePage,
+    ): Promise<ChunkData[]> => {
+      console.log(`Chunking page: ${sitePage.title}`);
+      return chunk(sitePage.content, {
         minLength: 300,
         maxLength: 1000,
         overlap: 50,
+        splitter: "paragraph",
       }).map((chunkText, index) => {
         return {
           text: chunkText,
           metadata: {
-            title: doc.title,
-            url: doc.url,
+            title: sitePage.title,
+            url: sitePage.url,
             index: index,
           },
         };
       });
     },
-    // Embedding generator to create embeddings for each chunk
-    embeddingGenerator: async (chunk: ChunkData): Promise<EmbeddingData> => {
+    chunkToEmbeddingFunction: async (
+      chunk: ChunkData,
+    ): Promise<EmbeddingData> => {
       // Create embedding using OpenAI
       const response = await openai.embeddings.create({
         model: "text-embedding-ada-002",
         input: chunk.text,
       });
-
       console.log(`Generated embedding for: ${chunk.text.substring(0, 30)}...`);
-
       return {
         embedding: response.data[0].embedding,
         text: chunk.text,
@@ -177,10 +166,10 @@ async function startWorker() {
   });
 
   // Start the worker
-  await worker.start();
+  await ragmatic.start();
   console.log("Worker started - processing embeddings in background");
 
-  return worker;
+  return ragmatic;
 }
 
 // Function to search for similar content
@@ -344,8 +333,8 @@ async function main() {
   console.log("---------------------------");
 
   // Check if .env variables are set
-  if (!process.env.PG_CONNECTION_STRING) {
-    console.error("Error: PG_CONNECTION_STRING not set in .env file");
+  if (!process.env.DATABASE_URL) {
+    console.error("Error: DATABASE_URL not set in .env file");
     process.exit(1);
   }
 
@@ -582,7 +571,7 @@ async function main() {
 
         case "exit": {
           isProcessing = false;
-          await worker.pause();
+          await worker.stop();
           console.log("Paused worker. Exiting...");
           break;
         }

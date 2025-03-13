@@ -144,6 +144,35 @@ describe("Database Setup Module", () => {
     await setup(config);
   });
 
+  it("should be able to track a table in a non-public schema", async () => {
+    try {
+      await client.query(`CREATE SCHEMA IF NOT EXISTS private;`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS private.documents_b (
+          id SERIAL PRIMARY KEY,
+          content TEXT NOT NULL,
+          updated_at TIMESTAMP NOT NULL
+        );
+      `);
+      await client.query(`
+        INSERT INTO private.documents_b (id, content, updated_at)
+        VALUES (1, 'test content', NOW());
+      `);
+      await setup({
+        ...config,
+        documentsTable: "private.documents_b",
+        trackerName: "private",
+      });
+      const res = await client.query<QueryRow>(`
+        SELECT * FROM ragmatic_private.shadows;
+      `);
+      expect(res.rows.length).toBe(1);
+      expect(res.rows[0].doc_id).toBe(1);
+    } finally {
+      await client.query(`DROP SCHEMA IF EXISTS private CASCADE;`);
+    }
+  });
+
   it("should create the shadow table with the correct columns and indexes and ON DELETE CASCADE", async () => {
     const res = await client.query<QueryRow>(
       `
@@ -183,34 +212,34 @@ describe("Database Setup Module", () => {
     await client.query(
       `
       INSERT INTO ${config.documentsTable} (content, updated_at)
-      VALUES ('test content', $1)
-    `,
+    VALUES('test content', $1)
+      `,
       [now],
     );
 
     // verify the document is inserted
     const docRes = await client.query<QueryRow>(`
-      SELECT * FROM ${config.documentsTable} WHERE id = 1
-    `);
+    SELECT * FROM ${config.documentsTable} WHERE id = 1
+      `);
     expect(docRes.rows.length).toBe(1);
     expect(docRes.rows[0].content).toBe("test content");
 
     // verify the shadow record is inserted
     const shadowRes = await client.query<QueryRow>(`
-      SELECT * FROM ${schemaName}.shadows WHERE doc_id = 1
-    `);
+    SELECT * FROM ${schemaName}.shadows WHERE doc_id = 1
+      `);
     expect(shadowRes.rows.length).toBe(1);
     expect(shadowRes.rows[0].doc_id).toBe(1);
 
     // delete the document
     await client.query(`
       DELETE FROM ${config.documentsTable} WHERE id = 1
-    `);
+      `);
 
     // verify the shadow record is deleted
     const shadowRes2 = await client.query<QueryRow>(`
-      SELECT * FROM ${schemaName}.shadows WHERE doc_id = 1
-    `);
+    SELECT * FROM ${schemaName}.shadows WHERE doc_id = 1
+      `);
     expect(shadowRes2.rows.length).toBe(0);
   });
 
@@ -244,7 +273,7 @@ describe("Database Setup Module", () => {
       SELECT indexname
       FROM pg_indexes
       WHERE schemaname = $1 AND tablename = $2;
-      `,
+    `,
       [schemaName, "chunks"],
     );
 
@@ -262,43 +291,43 @@ describe("Database Setup Module", () => {
     await client.query(
       `
       INSERT INTO ${config.documentsTable} (content, updated_at)
-      VALUES ('test content', $1)
-    `,
+    VALUES('test content', $1)
+      `,
       [now],
     );
 
     // verify the document is inserted
     const docRes = await client.query<QueryRow>(`
-      SELECT * FROM ${config.documentsTable} WHERE id = 1
-    `);
+    SELECT * FROM ${config.documentsTable} WHERE id = 1
+      `);
     expect(docRes.rows.length).toBe(1);
     expect(docRes.rows[0].content).toBe("test content");
 
     // insert a chunk
     await client.query(
       `
-      INSERT INTO ${schemaName}.chunks (doc_id, chunk_hash, chunk_text, chunk_json, chunk_blob, embedding, index)
-      VALUES (1, 'testhash', 'test chunk', '{"test": "test"}', $1, '[${Array(1536).fill(0).join(", ")}]':: vector, 0)
-    `,
+      INSERT INTO ${schemaName}.chunks(doc_id, chunk_hash, chunk_text, chunk_json, chunk_blob, embedding, index)
+    VALUES(1, 'testhash', 'test chunk', '{"test": "test"}', $1, '[${Array(1536).fill(0).join(", ")}]':: vector, 0)
+      `,
       [Buffer.from("test blob")],
     );
 
     // verify the chunk is inserted
     const chunkRes = await client.query<QueryRow>(`
-      SELECT * FROM ${schemaName}.chunks WHERE doc_id = 1
-    `);
+    SELECT * FROM ${schemaName}.chunks WHERE doc_id = 1
+      `);
     expect(chunkRes.rows.length).toBe(1);
     expect(chunkRes.rows[0].doc_id).toBe(1);
 
     // delete the document
     await client.query(`
       DELETE FROM ${config.documentsTable} WHERE id = 1
-    `);
+      `);
 
     // verify the chunk is deleted
     const chunkRes2 = await client.query<QueryRow>(`
-      SELECT * FROM ${schemaName}.chunks WHERE doc_id = 1
-    `);
+    SELECT * FROM ${schemaName}.chunks WHERE doc_id = 1
+      `);
     expect(chunkRes2.rows.length).toBe(0);
   });
 
@@ -309,7 +338,7 @@ describe("Database Setup Module", () => {
       SELECT indexname
       FROM pg_indexes
       WHERE schemaname = $1 AND tablename = $2;
-      `,
+    `,
       [schemaName, "work_queue"],
     );
 
@@ -332,7 +361,7 @@ describe("Database Setup Module", () => {
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = $1 AND table_name = $2;
-      `,
+    `,
       [schemaName, "work_queue"],
     );
 
@@ -355,17 +384,21 @@ describe("Database Setup Module", () => {
     const res = await client.query<ConfigRow>(`
       SELECT key, value FROM ${schemaName}.config;
     `);
-    expect(res.rows.length).toBe(5);
-    expect(res.rows[0].key).toBe("documentsTable");
-    expect(res.rows[0].value).toBe(config.documentsTable);
-    expect(res.rows[1].key).toBe("docIdType");
-    expect(res.rows[1].value).toBe("INT");
-    expect(res.rows[2].key).toBe("embeddingDimension");
-    expect(res.rows[2].value).toBe("1536");
-    expect(res.rows[3].key).toBe("shadowTable");
-    expect(res.rows[3].value).toBe("ragmatic_test.shadows");
-    expect(res.rows[4].key).toBe("chunksTable");
-    expect(res.rows[4].value).toBe("ragmatic_test.chunks");
+    expect(res.rows.length).toBe(7);
+    expect(res.rows[0].key).toBe("documentsSchema");
+    expect(res.rows[0].value).toBe("public");
+    expect(res.rows[1].key).toBe("documentsTable");
+    expect(res.rows[1].value).toBe("documents");
+    expect(res.rows[2].key).toBe("docIdType");
+    expect(res.rows[2].value).toBe("INT");
+    expect(res.rows[3].key).toBe("embeddingDimension");
+    expect(res.rows[3].value).toBe("1536");
+    expect(res.rows[4].key).toBe("shadowTable");
+    expect(res.rows[4].value).toBe("ragmatic_test.shadows");
+    expect(res.rows[5].key).toBe("chunksTable");
+    expect(res.rows[5].value).toBe("ragmatic_test.chunks");
+    expect(res.rows[6].key).toBe("ragmaticSchemaVersion");
+    expect(res.rows[6].value).toBe("1");
 
     // update the config
     await setup({
@@ -376,10 +409,10 @@ describe("Database Setup Module", () => {
     const res2 = await client.query<ConfigRow>(`
       SELECT key, value FROM ${schemaName}.config;
     `);
-    expect(res2.rows[3].key).toBe("shadowTable");
-    expect(res2.rows[3].value).toBe("ragmatic_test.shadows_b");
-    expect(res2.rows[4].key).toBe("chunksTable");
-    expect(res2.rows[4].value).toBe("ragmatic_test.chunks_b");
+    expect(res2.rows[4].key).toBe("shadowTable");
+    expect(res2.rows[4].value).toBe("ragmatic_test.shadows_b");
+    expect(res2.rows[5].key).toBe("chunksTable");
+    expect(res2.rows[5].value).toBe("ragmatic_test.chunks_b");
   });
 
   it("should process existing rows", async () => {
@@ -387,19 +420,19 @@ describe("Database Setup Module", () => {
     // Create a minimal "documents" table required by our triggers.
     await client.query(`
       CREATE TABLE IF NOT EXISTS ${config.documentsTable} (
-        id SERIAL PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
         content TEXT NOT NULL,
-        updated_at TIMESTAMP NOT NULL
+          updated_at TIMESTAMP NOT NULL
       );
-    `);
+  `);
 
     // insert a document
     const now = new Date();
     await client.query(
       `
       INSERT INTO ${config.documentsTable} (content, updated_at)
-      VALUES ('test content', $1)
-      `,
+  VALUES('test content', $1)
+    `,
       [now],
     );
 
@@ -407,7 +440,7 @@ describe("Database Setup Module", () => {
 
     // verify the shadow record is inserted
     const shadowRes = await client.query<QueryRow>(`
-      SELECT * FROM ${schemaName}.shadows WHERE doc_id = 1
+  SELECT * FROM ${schemaName}.shadows WHERE doc_id = 1
     `);
     expect(shadowRes.rows.length).toBe(1);
     expect(shadowRes.rows[0].doc_id).toBe(1);
@@ -419,7 +452,7 @@ describe("Database Setup Module", () => {
     const now = new Date();
     const insertRes = await client.query<QueryRow>(
       `INSERT INTO ${config.documentsTable} (content, updated_at)
-    VALUES($1, $2) RETURNING id`,
+  VALUES($1, $2) RETURNING id`,
       ["Test insert content", now],
     );
     const docId = insertRes.rows[0].id;
@@ -439,15 +472,15 @@ describe("Database Setup Module", () => {
     const now = new Date();
     const insertRes = await client.query<QueryRow>(
       `INSERT INTO ${config.documentsTable} (content, updated_at)
-    VALUES($1, $2) RETURNING id`,
+  VALUES($1, $2) RETURNING id`,
       ["Content to delete", now],
     );
     const docId = insertRes.rows[0].id;
 
     // Manually insert a dummy chunk in the chunks table.
     await client.query(
-      `INSERT INTO ${schemaName}.chunks (doc_id, chunk_hash, chunk_text, embedding, index)
-    VALUES($1, $2, $3, '[${Array(1536).fill(0).join(", ")}]':: vector, $4)`,
+      `INSERT INTO ${schemaName}.chunks(doc_id, chunk_hash, chunk_text, embedding, index)
+  VALUES($1, $2, $3, '[${Array(1536).fill(0).join(", ")}]':: vector, $4)`,
       [docId, "dummyhash", "dummy text", 0],
     );
 
@@ -473,17 +506,17 @@ describe("Database Setup Module", () => {
 
   it("should delete the shadow table and chunks table if the schema is dropped", async () => {
     // Drop the schema.
-    await client.query(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE;`);
+    await client.query(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE; `);
 
     // Verify the shadow table and chunks table are gone.
     const tableExistsQuery = `
       SELECT EXISTS(
-      SELECT 1 
+    SELECT 1 
         FROM information_schema.tables 
         WHERE table_schema = $1
         AND table_name = $2
-    );
-    `;
+  );
+  `;
     let shadowTableExists = await client.query(tableExistsQuery, [
       schemaName,
       config.shadowTable,
@@ -504,42 +537,42 @@ describe("Database Setup Module", () => {
     // Create the documents table
     await client.query(`
       CREATE TABLE IF NOT EXISTS ${config.documentsTable} (
-        id SERIAL PRIMARY KEY,
-        content TEXT NOT NULL,
+    id SERIAL PRIMARY KEY,
+      content TEXT NOT NULL,
         updated_at TIMESTAMP NOT NULL
       );
-    `);
+`);
 
     // Set up the ragmatic schema
     await setup(config);
-    const schemaName = `${PREFIX}${config.trackerName}`;
+    const schemaName = `${PREFIX}${config.trackerName} `;
 
     // Insert two test documents - we'll use ID 2 to verify that orphaned records with IDs
     // that don't conflict with new document IDs will be properly cleaned up
     const now = new Date();
     await client.query(
       `INSERT INTO ${config.documentsTable} (content, updated_at)
-      VALUES ($1, $2), ($3, $4)`,
+VALUES($1, $2), ($3, $4)`,
       ["Test document 1", now, "Test document 2", now],
     );
 
     // Insert work queue items for both documents
     await client.query(`
-      INSERT INTO ${schemaName}.work_queue (doc_id, vector_clock)
-      VALUES (1, 1), (2, 1);
-    `);
+      INSERT INTO ${schemaName}.work_queue(doc_id, vector_clock)
+VALUES(1, 1), (2, 1);
+`);
 
     // Insert dummy chunks for both documents
     await client.query(`
-      INSERT INTO ${schemaName}.chunks (doc_id, index, chunk_hash, chunk_text, embedding)
-      VALUES 
-        (1, 0, 'hash1', 'doc1 chunk text', '[${Array(1536).fill(0).join(", ")}]'::vector),
-        (2, 0, 'hash2', 'doc2 chunk text', '[${Array(1536).fill(0).join(", ")}]'::vector);
-    `);
+      INSERT INTO ${schemaName}.chunks(doc_id, index, chunk_hash, chunk_text, embedding)
+VALUES
+  (1, 0, 'hash1', 'doc1 chunk text', '[${Array(1536).fill(0).join(", ")}]':: vector),
+  (2, 0, 'hash2', 'doc2 chunk text', '[${Array(1536).fill(0).join(", ")}]'::vector);
+`);
 
     // Verify we have two documents each with their related records
     let docCount = await client.query(
-      `SELECT COUNT(*) FROM ${config.documentsTable}`,
+      `SELECT COUNT(*) FROM ${config.documentsTable} `,
     );
     expect(Number(docCount.rows[0].count)).toBe(2);
 
@@ -559,21 +592,21 @@ describe("Database Setup Module", () => {
     expect(Number(chunksCount.rows[0].count)).toBe(2);
 
     // Now drop the documents table
-    await client.query(`DROP TABLE ${config.documentsTable} CASCADE;`);
+    await client.query(`DROP TABLE ${config.documentsTable} CASCADE; `);
 
     // Recreate the documents table
     await client.query(`
       CREATE TABLE IF NOT EXISTS ${config.documentsTable} (
-        id SERIAL PRIMARY KEY,
-        content TEXT NOT NULL,
-        updated_at TIMESTAMP NOT NULL
+  id SERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+      updated_at TIMESTAMP NOT NULL
       );
-    `);
+`);
 
     // Insert only one new document - this will reuse ID 1, but not ID 2
     await client.query(
       `INSERT INTO ${config.documentsTable} (content, updated_at)
-      VALUES ($1, $2)`,
+VALUES($1, $2)`,
       ["New document after table drop", now],
     );
 
@@ -585,7 +618,7 @@ describe("Database Setup Module", () => {
 
     // Verify we only have records for document ID 1 now
     let docResult = await client.query(
-      `SELECT id FROM ${config.documentsTable}`,
+      `SELECT id FROM ${config.documentsTable} `,
     );
     expect(docResult.rows.length).toBe(1);
     expect(docResult.rows[0].id).toBe(1);
@@ -593,14 +626,14 @@ describe("Database Setup Module", () => {
     // Verify shadows - should only have one for ID 1
     let shadowResult = await client.query(`
       SELECT doc_id, vector_clock FROM ${schemaName}.shadows ORDER BY doc_id
-    `);
+  `);
     expect(shadowResult.rows.length).toBe(1);
     expect(shadowResult.rows[0].doc_id).toBe(1);
 
     // Verify work queue is cleaned up fully
     let workQueueResult = await client.query(`
       SELECT doc_id FROM ${schemaName}.work_queue ORDER BY doc_id
-    `);
+  `);
     expect(workQueueResult.rows.length).toBe(0);
 
     // Verify chunks - ID 2 chunks cleaned up, ID 1 chunks remain
@@ -620,16 +653,16 @@ describe("Database Setup Module", () => {
       // setup the second schema
       const configB: Config = { ...config, trackerName: "test_b" };
       await setup(configB);
-      const schemaBName = `${PREFIX}${configB.trackerName}`;
+      const schemaBName = `${PREFIX}${configB.trackerName} `;
 
       // insert a document
       const now = new Date();
       const insertRes = await client.query(
         `
         INSERT INTO ${config.documentsTable} (content, updated_at)
-        VALUES ('test content', $1)
+VALUES('test content', $1)
         RETURNING id
-      `,
+  `,
         [now],
       );
       const docId = insertRes.rows[0].id;
@@ -637,7 +670,7 @@ describe("Database Setup Module", () => {
       // verify the document is inserted
       const docRes = await client.query<QueryRow>(
         `
-        SELECT * FROM ${config.documentsTable} WHERE id = $1`,
+SELECT * FROM ${config.documentsTable} WHERE id = $1`,
         [docId],
       );
       expect(docRes.rows.length).toBe(1);
@@ -646,7 +679,7 @@ describe("Database Setup Module", () => {
       // verify the shadow record is inserted in both schemas
       const shadowRes = await client.query<QueryRow>(
         `
-        SELECT * FROM ${schemaBName}.shadows WHERE doc_id = $1`,
+SELECT * FROM ${schemaBName}.shadows WHERE doc_id = $1`,
         [docId],
       );
       expect(shadowRes.rows.length).toBe(1);
@@ -654,7 +687,7 @@ describe("Database Setup Module", () => {
       expect(Number(shadowRes.rows[0].vector_clock)).toBe(1);
       const shadowRes2 = await client.query<QueryRow>(
         `
-        SELECT * FROM ${schemaName}.shadows WHERE doc_id = $1`,
+SELECT * FROM ${schemaName}.shadows WHERE doc_id = $1`,
         [docId],
       );
       expect(shadowRes2.rows.length).toBe(1);
@@ -671,7 +704,7 @@ describe("Database Setup Module", () => {
       // verify the shadow record is updated in both schemas
       const shadowRes3 = await client.query<QueryRow>(
         `
-        SELECT * FROM ${schemaBName}.shadows WHERE doc_id = $1`,
+SELECT * FROM ${schemaBName}.shadows WHERE doc_id = $1`,
         [docId],
       );
       expect(shadowRes3.rows.length).toBe(1);
@@ -680,7 +713,7 @@ describe("Database Setup Module", () => {
 
       const shadowRes4 = await client.query<QueryRow>(
         `
-        SELECT * FROM ${schemaName}.shadows WHERE doc_id = $1`,
+SELECT * FROM ${schemaName}.shadows WHERE doc_id = $1`,
         [docId],
       );
       expect(shadowRes4.rows.length).toBe(1);
@@ -698,33 +731,33 @@ describe("Database Setup Module", () => {
       // create a second documents table
       await client.query(`
         CREATE TABLE IF NOT EXISTS ${configB.documentsTable} (
-          id SERIAL PRIMARY KEY,
-          content TEXT NOT NULL,
-          updated_at TIMESTAMP NOT NULL
+  id SERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+      updated_at TIMESTAMP NOT NULL
           );
-      `);
+`);
 
       // setup the second schema
       await setup(configB);
-      const schemaBName = `${PREFIX}${configB.trackerName}`;
+      const schemaBName = `${PREFIX}${configB.trackerName} `;
 
       // insert a document into both tables
       const now = new Date();
       const insertRes = await client.query(
         `
         INSERT INTO ${config.documentsTable} (content, updated_at)
-        VALUES ('test content', $1)
+VALUES('test content', $1)
         RETURNING id
-      `,
+  `,
         [now],
       );
       const docId = insertRes.rows[0].id;
       const insertResB = await client.query(
         `
         INSERT INTO ${configB.documentsTable} (content, updated_at)
-        VALUES ('test content', $1)
+VALUES('test content', $1)
         RETURNING id
-      `,
+  `,
         [now],
       );
       const docIdB = insertResB.rows[0].id;
@@ -732,7 +765,7 @@ describe("Database Setup Module", () => {
       // verify the documents are inserted
       const docRes = await client.query<QueryRow>(
         `
-        SELECT * FROM ${config.documentsTable} WHERE id = $1`,
+SELECT * FROM ${config.documentsTable} WHERE id = $1`,
         [docId],
       );
       expect(docRes.rows.length).toBe(1);
@@ -740,7 +773,7 @@ describe("Database Setup Module", () => {
 
       const docResB = await client.query<QueryRow>(
         `
-        SELECT * FROM ${configB.documentsTable} WHERE id = $1`,
+SELECT * FROM ${configB.documentsTable} WHERE id = $1`,
         [docIdB],
       );
       expect(docResB.rows.length).toBe(1);
@@ -749,7 +782,7 @@ describe("Database Setup Module", () => {
       // verify the shadow records are inserted in both schemas and have the correct doc_id and vector_clock
       const shadowRes = await client.query<QueryRow>(
         `
-        SELECT * FROM ${schemaName}.shadows WHERE doc_id = $1`,
+SELECT * FROM ${schemaName}.shadows WHERE doc_id = $1`,
         [docId],
       );
       expect(shadowRes.rows.length).toBe(1);
@@ -758,7 +791,7 @@ describe("Database Setup Module", () => {
 
       const shadowResB = await client.query<QueryRow>(
         `
-        SELECT * FROM ${schemaBName}.shadows WHERE doc_id = $1`,
+SELECT * FROM ${schemaBName}.shadows WHERE doc_id = $1`,
         [docIdB],
       );
       expect(shadowResB.rows.length).toBe(1);
@@ -775,7 +808,7 @@ describe("Database Setup Module", () => {
       // verify the shadow record is updated in only the correct shadow table
       const shadowRes2 = await client.query<QueryRow>(
         `
-        SELECT * FROM ${schemaName}.shadows WHERE doc_id = $1`,
+SELECT * FROM ${schemaName}.shadows WHERE doc_id = $1`,
         [docId],
       );
       expect(shadowRes2.rows.length).toBe(1);
@@ -784,7 +817,7 @@ describe("Database Setup Module", () => {
 
       const shadowResB2 = await client.query<QueryRow>(
         `
-        SELECT * FROM ${schemaBName}.shadows WHERE doc_id = $1`,
+SELECT * FROM ${schemaBName}.shadows WHERE doc_id = $1`,
         [docIdB],
       );
       expect(shadowResB2.rows.length).toBe(1);

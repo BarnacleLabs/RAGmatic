@@ -6,6 +6,7 @@ import {
   SHADOW_TABLE,
   CHUNK_TABLE,
   WORK_QUEUE_TABLE,
+  RAGMATIC_SCHEMA_VERSION,
 } from "./utils/constants";
 import { sql } from "./utils/utils";
 import { createLogger } from "./utils/logger";
@@ -44,10 +45,14 @@ export async function setup(config: Config): Promise<void> {
   }
 
   // required config
-  const documentsTable = config.documentsTable.replaceAll(
-    /[^a-zA-Z0-9_]/g,
-    "_",
-  );
+  let documentsSchema = "public";
+  let documentsTable = config.documentsTable;
+  if (config.documentsTable.includes(".")) {
+    documentsSchema = config.documentsTable.split(".")[0];
+    documentsTable = config.documentsTable.split(".")[1];
+  }
+  documentsSchema = documentsSchema.replaceAll(/[^a-zA-Z0-9_]/g, "_");
+  documentsTable = documentsTable.replaceAll(/[^a-zA-Z0-9_]/g, "_");
   const trackerName = config.trackerName.replaceAll(/[^a-zA-Z0-9_]/g, "_");
   const embeddingDimension = config.embeddingDimension
     .toString()
@@ -102,6 +107,10 @@ export async function setup(config: Config): Promise<void> {
         ${schemaName}.config (key, value)
       VALUES
         (
+          'documentsSchema',
+          '${documentsSchema}'
+        ),
+        (
           'documentsTable',
           '${documentsTable}'
         ),
@@ -117,6 +126,10 @@ export async function setup(config: Config): Promise<void> {
         (
           'chunksTable',
           '${chunksTable}'
+        ),
+        (
+          'ragmaticSchemaVersion',
+          '${RAGMATIC_SCHEMA_VERSION}'
         )
       ON CONFLICT (key) DO UPDATE
       SET
@@ -131,7 +144,7 @@ export async function setup(config: Config): Promise<void> {
         doc_id ${docIdType} NOT NULL,
         vector_clock BIGINT NOT NULL DEFAULT 1, -- At 1 billion increments per second, BIGINT lasts about 292 years.
         UNIQUE (doc_id),
-        CONSTRAINT fk_documents_sync FOREIGN KEY (doc_id) REFERENCES public.${documentsTable} (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        CONSTRAINT fk_documents_sync FOREIGN KEY (doc_id) REFERENCES ${documentsSchema}.${documentsTable} (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
       );
     `);
 
@@ -163,12 +176,12 @@ export async function setup(config: Config): Promise<void> {
 
     // Create sync trigger
     await client.query(sql`
-      DROP TRIGGER IF EXISTS sync_${schemaName}_to_shadow ON ${documentsTable};
+      DROP TRIGGER IF EXISTS sync_${schemaName}_to_shadow ON ${documentsSchema}.${documentsTable};
 
       CREATE TRIGGER sync_${schemaName}_to_shadow
       AFTER INSERT
       OR
-      UPDATE ON ${documentsTable} FOR EACH ROW
+      UPDATE ON ${documentsSchema}.${documentsTable} FOR EACH ROW
       EXECUTE FUNCTION ${schemaName}.sync_documents_to_shadow ();
     `);
 
@@ -184,7 +197,7 @@ export async function setup(config: Config): Promise<void> {
         chunk_blob BYTEA,
         chunk_json JSONB,
         embedding VECTOR (${embeddingDimension}) NOT NULL,
-        CONSTRAINT fk_doc_chunks FOREIGN KEY (doc_id) REFERENCES ${documentsTable} (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        CONSTRAINT fk_doc_chunks FOREIGN KEY (doc_id) REFERENCES ${documentsSchema}.${documentsTable} (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
       );
     `);
 
@@ -297,7 +310,7 @@ export async function setup(config: Config): Promise<void> {
           SELECT
             id
           FROM
-            ${documentsTable}
+            ${documentsSchema}.${documentsTable}
         );
     `);
     await client.query(sql`
@@ -307,7 +320,7 @@ export async function setup(config: Config): Promise<void> {
           SELECT
             id
           FROM
-            ${documentsTable}
+            ${documentsSchema}.${documentsTable}
         );
     `);
     // also work queue rows need to be cleaned so that UNIQUE (doc_id, vector_clock) constraint is satisfied and vector_clock is monotonically increasing
@@ -320,7 +333,7 @@ export async function setup(config: Config): Promise<void> {
       SELECT
         id
       FROM
-        public.${documentsTable} d
+        ${documentsSchema}.${documentsTable} d
       WHERE
         NOT EXISTS (
           SELECT

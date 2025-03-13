@@ -1,3 +1,8 @@
+import { LoggerConfig as LoggerConfigI } from "./utils/logger";
+export interface LoggerConfig {
+  logger?: LoggerConfigI;
+}
+
 /**
  * Database client interface
  */
@@ -5,6 +10,11 @@ export interface DBClient {
   query(queryText: string, values?: any[]): Promise<any>;
   connect(): Promise<void>;
   end(): Promise<void>;
+}
+
+export interface DBConfig {
+  connectionString?: string;
+  dbClient?: DBClient;
 }
 
 /**
@@ -15,33 +25,16 @@ export enum ErrorType {
   Permanent = "permanent",
 }
 
-import { LoggerConfig } from "./utils/logger";
+export interface TableConfig {
+  documentsTable: string;
+  docIdType?: "INT" | "UUID" | "TEXT" | "BIGINT" | string;
+  embeddingDimension: number;
+}
 
 /**
  * Configuration options for setting up the database
  */
-export interface Config {
-  /**
-   * PostgreSQL connection string
-   */
-  connectionString?: string;
-  /**
-   * Database client
-   */
-  dbClient?: DBClient;
-  /**
-   * Name of the documents table in the public schema
-   */
-  documentsTable: string;
-  /**
-   * The type of the id of the documents table, e.g. INT, UUID, etc.
-   * @default 'INT'
-   */
-  docIdType?: "INT" | "UUID" | "TEXT" | "BIGINT" | string;
-  /**
-   * Dimension of the embedding vectors
-   */
-  embeddingDimension: number;
+export interface Config extends DBConfig, LoggerConfig, TableConfig {
   /**
    * Identifier to allow multiple trackers for the same table
    * @default 'default'
@@ -63,24 +56,12 @@ export interface Config {
    * @default false
    */
   skipEmbeddingIndexSetup?: boolean;
-  /**
-   * Logging configuration options
-   */
-  logger?: LoggerConfig;
 }
 
 /**
  * Configuration options for the worker
  */
-export interface WorkerConfig {
-  /**
-   * PostgreSQL connection string
-   */
-  connectionString?: string;
-  /**
-   * Database client
-   */
-  dbClient?: DBClient;
+export interface WorkerConfig<T> extends DBConfig, LoggerConfig {
   /**
    * Name of the tracker to use
    */
@@ -105,7 +86,7 @@ export interface WorkerConfig {
    * Note that the deduplication assumes that the chunkGenerator returns chunks in the same order for the same document in a deterministic way.
    * @default returns the document as a single chunk
    */
-  chunkGenerator?: (doc: any) => Promise<ChunkData[]>;
+  chunkGenerator?: (doc: T) => Promise<ChunkData[]>;
   /**
    * Optional override for the default hash function that is used to deduplicate chunks.
    * @param chunk - The chunk to generate a hash for
@@ -116,7 +97,7 @@ export interface WorkerConfig {
   /**
    * Polling interval in milliseconds
    */
-  pollingIntervalMs: number;
+  pollingIntervalMs?: number;
   /**
    * Maximum number of dirty shadow records to process per polling cycle
    * @default 5
@@ -137,22 +118,17 @@ export interface WorkerConfig {
    * @default 1
    */
   stalledJobTimeoutMinutes?: number;
-  /**
-   * Logging configuration options
-   * @default { level: 'info', format: 'text' }
-   */
-  logger?: LoggerConfig;
 }
 
 /**
  * Any JSON serializable data to embed
  */
-interface ChunkDataBase extends Record<string, any> {}
+export interface ChunkDataBase extends Record<string, any> {}
 
 /**
  * Extended chunk data to embed with blob data
  */
-interface ChunkDataWithBlob extends ChunkDataBase {
+export interface ChunkDataWithBlob extends ChunkDataBase {
   /**
    * Blob data to embed
    * If you want to pass a blob and use the default hash function
@@ -166,28 +142,28 @@ interface ChunkDataWithBlob extends ChunkDataBase {
  */
 export type ChunkData = ChunkDataWithBlob | ChunkDataBase;
 
-interface EmbeddingDataBase {
+export interface EmbeddingDataBase {
   /**
    * Generated embedding vector
    */
   embedding: number[];
 }
 
-interface EmbeddingDataWithText extends EmbeddingDataBase {
+export interface EmbeddingDataWithText extends EmbeddingDataBase {
   /**
    * Text content of the chunk
    */
   text: string;
 }
 
-interface EmbeddingDataWithJson extends EmbeddingDataBase {
+export interface EmbeddingDataWithJson extends EmbeddingDataBase {
   /**
    * JSON data that was embedded
    */
   json: Record<string, any>;
 }
 
-interface EmbeddingDataWithBlob extends EmbeddingDataBase {
+export interface EmbeddingDataWithBlob extends EmbeddingDataBase {
   /**
    * Blob data that was embedded
    */
@@ -202,22 +178,22 @@ export type EmbeddingData =
   | EmbeddingDataWithJson
   | EmbeddingDataWithText;
 
-interface ChunkRecordBase {
+export interface ChunkRecordBase {
   hash: string;
   index: number;
   embedding: string;
   vector_clock: number;
 }
 
-interface ChunkRecordWithText extends ChunkRecordBase {
+export interface ChunkRecordWithText extends ChunkRecordBase {
   text: string;
 }
 
-interface ChunkRecordWithJson extends ChunkRecordBase {
+export interface ChunkRecordWithJson extends ChunkRecordBase {
   json: Record<string, any>;
 }
 
-interface ChunkRecordWithBlob extends ChunkRecordBase {
+export interface ChunkRecordWithBlob extends ChunkRecordBase {
   blob: Buffer;
 }
 
@@ -248,3 +224,32 @@ export type Job = {
   error?: string;
   retry_count: number;
 };
+
+/**
+ * the RAGmatic public api
+ */
+export interface RAGmatic<T> {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  reprocessAll(): Promise<void>;
+  countRemainingDocuments(): Promise<number>;
+  destroy(): Promise<void>;
+}
+
+/**
+ * RAGmatic configuration
+ */
+export interface RAGmaticConfig<T>
+  extends Omit<
+      Config,
+      "trackerName" | "documentsTable" | "shadowTable" | "chunksTable"
+    >,
+    Omit<
+      WorkerConfig<T>,
+      "trackerName" | "chunkGenerator" | "embeddingGenerator"
+    > {
+  name: string;
+  tableToWatch: string;
+  recordToChunksFunction: (doc: T) => Promise<ChunkData[]>;
+  chunkToEmbeddingFunction: (chunk: ChunkData) => Promise<EmbeddingData>;
+}

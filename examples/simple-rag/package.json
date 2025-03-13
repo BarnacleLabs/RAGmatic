@@ -5,10 +5,11 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "seed": "tsx seed.ts",
-    "setup": "tsx setup.ts",
-    "worker": "tsx worker.ts",
+    "seed": "tsx db/seed.ts",
+    "openai": "tsx pipelines/openai/index.ts",
+    "openai-hyde": "tsx pipelines/openai-hyde/index.ts",
     "search": "tsx search.ts",
+    "compare": "tsx compare.ts",
     "db:up": "docker compose -f docker-compose.yml up -d",
     "db:down": "docker compose -f docker-compose.yml down"
   },

@@ -1,11 +1,9 @@
-export * from "./types";
-export { Worker } from "./worker";
-export { setup } from "./dbSetup";
 export {
-  getTrackerConfig,
-  countRemainingDocuments,
-  reprocessDocuments,
-  destroyTracker,
-  type TrackerConfig,
-} from "./trackerUtils";
+  type RAGmaticConfig,
+  type ChunkData,
+  type EmbeddingData,
+  type Job,
+  type DBClient,
+} from "./types";
 export { createLogger, logger, type LoggerConfig } from "./utils/logger";
+export { RAGmatic } from "./ragmatic";

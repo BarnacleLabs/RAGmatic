@@ -45,10 +45,10 @@ and more:
 
 ## How does RAGmatic work?
 
-1. RAGmatic works by tracking changes to your chosen table via database triggers in a new PostgreSQL schema: `ragmatic_<tracker_name>`.
-2. Once the tracking is setup via `ragmatic.setup()`, you can continue to use your database as normal.
-3. Any changes to your table will be detected and processed by `ragmatic.Worker`-s. Chunking and embedding generation is fully configurable and already de-duplicates data to avoid expensive and unnecessary re-embeddings.
-4. Processed embeddings are stored in the `ragmatic_<tracker_name>.chunks` table as pgvector's vector data type. You can search these vectors with pgvector's [`vector_similarity_ops`](https://github.com/pgvector/pgvector?tab=readme-ov-file#querying) functions in SQL and even join them with your existing tables to filter results.
+1. RAGmatic works by tracking changes to your chosen table via database triggers in a new PostgreSQL schema: `ragmatic_<pipeline_name>`.
+2. Once the tracking is setup via `RAGmatic.create()`, you can continue to use your database as normal.
+3. Any changes to your table will be detected and processed by RAGmatic's workers. Chunking and embedding generation is fully configurable and already de-duplicates data to avoid expensive and unnecessary re-embeddings.
+4. Processed embeddings are stored in the `ragmatic_<pipeline_name>.chunks` table as pgvector's vector data type. You can search these vectors with pgvector's [`vector_similarity_ops`](https://github.com/pgvector/pgvector?tab=readme-ov-file#querying) functions in SQL and even join them with your existing tables to filter results.
 
 ## 🚀 Getting Started
 
@@ -58,54 +58,49 @@ and more:
 npm install ragmatic
 ```
 
-2. Setup tracking for your table. This will create the necessary tables in your database under a `ragmatic_<tracker_name>` schema.
+2. Setup tracking for your table. This will create the necessary tables in your database under a `ragmatic_<pipeline_name>` schema.
 
 ```ts
-import { setup } from "ragmatic";
-
-setup({
-  connectionString: process.env.PG_CONNECTION_STRING!,
-  documentsTable: "blog_posts",
-  trackerName: "blog_posts_openai",
-  embeddingDimension: 1536,
-}).then(() => {
-  console.log("RAGmatic is ready to use!");
-});
-```
-
-3. Create an embedding pipeline and start the worker. This will continuously embed your data and store the embeddings in the `ragmatic_<tracker_name>.chunks` table.
-
-```ts
+import RAGmatic from "ragmatic";
 import { Worker } from "ragmatic";
 import { chunk } from "llm-chunk";
 import { OpenAI } from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const worker = new Worker({
-  connectionString: process.env.PG_CONNECTION_STRING!,
-  trackerName: "blog_posts_openai",
-  pollingIntervalMs: 1000,
-  chunkGenerator: async (doc: any) => {
-    return chunk(doc.content, {
+const blogPostsToEmbeddings = await RAGmatic.create<BlogPost>({
+  connectionString: process.env.DATABASE_URL!,
+  name: "blog_posts_openai",
+  tableToWatch: "blog_posts",
+  embeddingDimension: 1536,
+  recordToChunksFunction: async (post: any) => {
+    return chunk(post.content, {
       minLength: 100,
       maxLength: 1000,
       overlap: 20,
-    });
+      splitter: "sentence",
+    }).map((chunk, index) => ({
+      text: chunk,
+      title: post.title,
+    }));
   },
-  embeddingGenerator: async (chunk: ChunkData) => {
+  chunkToEmbeddingFunction: async (chunk: ChunkData) => {
     const embedding = await openai.embeddings.create({
       model: "text-embedding-3-small",
-      input: chunk.text,
+      input: `title: ${chunk.title} content: ${chunk.text}`,
     });
     return {
       embedding: embedding.data[0].embedding,
-      text: chunk,
+      text: `title: ${chunk.title} content: ${chunk.text}`,
     };
   },
 });
+```
 
-worker.start();
+3. Start the embedding pipeline. This will continuously embed your data and store the embeddings in the `ragmatic_<pipeline_name>.chunks` table.
+
+```ts
+await blogPostsToEmbeddings.start();
 ```
 
 4. Search your data:
@@ -114,7 +109,7 @@ worker.start();
 import { pg } from "pg";
 
 const client = new pg.Client({
-  connectionString: process.env.PG_CONNECTION_STRING!,
+  connectionString: process.env.DATABASE_URL!,
 });
 await client.connect();
 
@@ -170,6 +165,16 @@ Both are tools for keeping your embeddings in sync with your data in PostgreSQL,
 
 We made RAGmatic to be a more flexible and powerful alternative to pgai, allowing you to use your own embedding pipeline defined in TypeScript, enabling you to use any LLM, chunking algorithm and metadata generation to create your own state of the art RAG system.
 
+### My table has a lot of columns, how can I track them all?
+
+When setting up your tracker, you don't need specify which columns to track, because RAGmatic will track all columns. It's up to your worker to decide which columns to use for the embedding generation.
+
+### What index is used for vector search? How can I configure it?
+
+By default RAGmatic creates a [pgvector HNSW index](https://github.com/pgvector/pgvector?tab=readme-ov-file#hnsw) for cosine distance on the `ragmatic_<pipeline_name>.chunks` table. You can disable this by setting the `skipEmbeddingIndexSetup` option to `true` when creating the pipeline. Then you can set up the index manually on the `ragmatic_<pipeline_name>.chunks` table.
+
+We will add more guidelines and examples on this soon.
+
 ### How does the de-duplication work?
 
 De-duplication works by calculating an md5 hash of every chunk and storing it at embedding time. When an update is detected for a row, the worker will check if the chunk has already been embedded and if so, it will skip the embedding step.
@@ -178,47 +183,21 @@ You can override the default hash function by providing your own implementation 
 
 ### How can I remove RAGmatic from my database?
 
-Call `ragmatic.destroyTracker(process.env.PG_CONNECTION_STRING!, "tracker_name")` to drop the `ragmatic_<tracker_name>` schema.
+Call `pipeline.destroy()` to drop the `ragmatic_<pipeline_name>` schema.
 
 This will remove all the tables and objects created by RAGmatic.
 
 ### How can I monitor worker processing?
 
-You can check on the job queue by querying the `ragmatic_<tracker_name>.work_queue` table or calling `ragmatic.countRemainingDocuments(process.env.PG_CONNECTION_STRING!, "tracker_name")`
-
-### My table has a lot of columns, how can I track them all?
-
-When setting up your tracker, you don't need specify which columns to track, because RAGmatic will track all columns. It's up to your worker to decide which columns to use for the embedding generation.
+You can check on the job queue by querying the `ragmatic_<pipeline_name>.work_queue` table or calling `pipeline.countRemainingDocuments()`
 
 ### I just updated my worker's code, how can I migrate to it?
 
-Call `ragmatic.reprocessDocuments(process.env.PG_CONNECTION_STRING!, "tracker_name")` to mark all your existing rows for re-embedding and start your worker with the new code.
+Call `pipeline.reprocessAll()` to mark all your existing rows for re-embedding and start your worker with the new code.
 
-### What is HyDE and why should I care?
-
-Hypothetical Document Embeddings (HyDE) is a technique first proposed in the paper [Precise Zero-Shot Dense Retrieval without Relevance Labels](https://arxiv.org/abs/2212.10496).
-
-HyDE works by generating hypothetical documents based on a query with **_the idea that the embedding of the hypothetical document will be more similar to your stored documents in the latent space, than the original query._** We found it's more practical to do this work in advance and pre-compute **hypothetical questions** for your stored documents at embedding time instead of generating **hypothetical documents** at query time.
-
-Eg.:
-
-```js
-const query = "What is the capital of France?";
-const chunk = "The capital of France is Paris";
-const metadata = await askLLM(
-  `Write 5 questions the following text can answer: ${chunk}`,
-);
-similarity(embedding(chunk + metadata), embedding(query)) <
-  similarity(embedding(chunk), embedding(query));
-```
-
-### What are some other techniques for improving retrieval?
+### What are some useful techniques for improving retrieval?
 
 Please see the [examples](./examples), dive into the [Awesome Generative Information Retrieval](https://github.com/gabriben/awesome-generative-information-retrieval?tab=readme-ov-file#retrieval-augmented-generation-rag) repo or hit us up on https://barnacle.ai we'd love to help you out.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please open an issue or submit a PR.
 
 ## 📝 License
 

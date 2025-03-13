@@ -17,6 +17,7 @@ export const sitePages = pgTable("site_pages", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export type SitePage = typeof sitePages.$inferSelect;
 // RAGmatic will create and manage this schema
 // This is just for type safety in our application
 export const embeddingSchema = pgSchema("ragmatic_firecrawl");

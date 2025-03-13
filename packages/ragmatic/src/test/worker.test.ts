@@ -12,10 +12,17 @@ import {
 import pg from "pg";
 import { setup } from "../dbSetup";
 import { PREFIX } from "../utils/constants";
-import { WorkerConfig, Config, ChunkData, EmbeddingData } from "../types";
+import {
+  WorkerConfig,
+  Config,
+  ChunkData,
+  EmbeddingData,
+  ErrorType,
+} from "../types";
 import { Worker } from "../worker";
 import { cleanupDatabase } from "../utils/utils";
 import type { Mock } from "vitest";
+import { ProcessingError } from "../utils/errors";
 
 interface QueryRow {
   id?: number;
@@ -51,7 +58,7 @@ describe("Worker Comprehensive Tests", () => {
   let mockEmbeddingGenerator: Mock;
   let mockChunkGenerator: Mock;
   let mockHashFunction: Mock;
-  let worker: Worker;
+  let worker: Worker<any>;
 
   beforeAll(async () => {
     client = new pg.Client({ connectionString: dbConfig.connectionString });
@@ -112,7 +119,7 @@ describe("Worker Comprehensive Tests", () => {
     // Import the test logger from testUtils
     const { createTestLogger } = await import("./testUtils");
 
-    const workerConfig: WorkerConfig = {
+    const workerConfig: WorkerConfig<any> = {
       connectionString: dbConfig.connectionString,
       trackerName: dbConfig.trackerName,
       pollingIntervalMs: 100, // Shorter polling to speed up tests
@@ -174,7 +181,9 @@ describe("Worker Comprehensive Tests", () => {
   }
 
   // Helper function to create a worker with specific config
-  function createWorker(overrides: Partial<WorkerConfig> = {}): Worker {
+  function createWorker(
+    overrides: Partial<WorkerConfig<any>> = {},
+  ): Worker<any> {
     return new Worker({
       connectionString: dbConfig.connectionString,
       trackerName: dbConfig.trackerName,
@@ -223,6 +232,16 @@ describe("Worker Comprehensive Tests", () => {
       await vi.advanceTimersByTimeAsync(100);
 
       expect(pollSpy).toHaveBeenCalledTimes(1);
+
+      await worker.pause();
+    });
+
+    it("should start creating jobs on run", async () => {
+      const createJobsSpy = vi.spyOn(worker, "createJobs");
+
+      await worker.start();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(createJobsSpy).toHaveBeenCalledTimes(1);
 
       await worker.pause();
     });
@@ -343,7 +362,7 @@ describe("Worker Comprehensive Tests", () => {
       await vi.advanceTimersByTimeAsync(100);
       await worker.pause();
 
-      // Check chunks - should have 4 chunks despite "duplicate" appearing twice
+      // Check chunks - should have 4 chunks
       const chunks = await getChunks(docId);
       expect(chunks.length).toBe(4);
 
@@ -354,10 +373,6 @@ describe("Worker Comprehensive Tests", () => {
       expect(mockHashFunction).toHaveBeenCalledTimes(4);
       expect(mockEmbeddingGenerator).toHaveBeenCalledTimes(4);
 
-      // Now change the hash function to return the same hash for each word
-      mockHashFunction.mockReset();
-      mockHashFunction.mockImplementation(() => Promise.resolve("same-hash"));
-
       // Update document to trigger processing
       await client.query(
         `UPDATE ${dbConfig.documentsTable} SET content = $1, updated_at = NOW() WHERE id = $2`,
@@ -367,11 +382,17 @@ describe("Worker Comprehensive Tests", () => {
       // Process again
       await worker.start();
       await vi.advanceTimersByTimeAsync(100);
+      await worker["createJobsRunning"];
+      await vi.advanceTimersByTimeAsync(100);
       await worker.pause();
 
-      // Only one embedding should be generated since all hashes are the same
-      // Our implementation adds index to hash so this test now tracks unique (hash+index) combos
-      expect(mockEmbeddingGenerator).toHaveBeenCalledTimes(8); // 4 original + 4 new
+      const chunks2 = await getChunks(docId);
+      expect(chunks2.length).toBe(4);
+      // expect the first chunk to have the new content
+      expect(chunks2[0].chunk_text).toBe("New");
+
+      expect(mockHashFunction).toHaveBeenCalledTimes(8);
+      expect(mockEmbeddingGenerator).toHaveBeenCalledTimes(6); // 4 original + 2 new
     });
 
     it("should properly update vector clocks on chunks", async () => {
@@ -397,6 +418,8 @@ describe("Worker Comprehensive Tests", () => {
 
       // Process again
       await worker.start();
+      await vi.advanceTimersByTimeAsync(100);
+      await worker["createJobsRunning"];
       await vi.advanceTimersByTimeAsync(100);
       await worker.pause();
 
@@ -487,6 +510,8 @@ describe("Worker Comprehensive Tests", () => {
       // Process both updates
       await worker.start();
       await vi.advanceTimersByTimeAsync(100);
+      await worker["createJobsRunning"];
+      await vi.advanceTimersByTimeAsync(100);
       await worker.pause();
 
       // Check work queue - there should be job entries
@@ -548,7 +573,7 @@ describe("Worker Comprehensive Tests", () => {
 
       // Process again to ensure completion
       await worker.start();
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(600);
       await worker.pause();
 
       // Final check - job should be completed eventually
@@ -557,6 +582,7 @@ describe("Worker Comprehensive Tests", () => {
         (item) => item.status === "completed",
       );
       expect(completedJob).toBeDefined();
+      expect(Number(completedJob?.retry_count)).toBeGreaterThan(0);
 
       // Chunks should exist
       const chunks = await getChunks(docId);
@@ -572,7 +598,8 @@ describe("Worker Comprehensive Tests", () => {
 
       // Always fail the embedding generator
       mockEmbeddingGenerator.mockImplementation(() => {
-        throw new Error("Persistent failure");
+        // throw new Error("Persistent failure");
+        throw new ProcessingError("Persistent failure", ErrorType.Permanent);
       });
 
       // We need to manually create a job for this test
@@ -586,7 +613,7 @@ describe("Worker Comprehensive Tests", () => {
 
       // Process again to retry
       await testWorker.start();
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(600);
       await testWorker.pause();
 
       // Check work queue - job should show retry attempt
@@ -595,8 +622,15 @@ describe("Worker Comprehensive Tests", () => {
 
       // Verify job has retry count > 0 or is marked as failed
       const hasRetries = queueItems.some((job) => Number(job.retry_count) > 0);
-
       expect(hasRetries).toBe(true);
+
+      await testWorker.start();
+      await vi.advanceTimersByTimeAsync(600);
+      await testWorker.pause();
+
+      const queueItems2 = await getWorkQueueItems(docId);
+      const hasFailed = queueItems2.some((job) => job.status === "failed");
+      expect(hasFailed).toBe(true);
 
       // No chunks should be created due to persistent failures
       const chunks = await getChunks(docId);

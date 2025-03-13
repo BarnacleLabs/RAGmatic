@@ -18,12 +18,14 @@ import { createLogger, Logger } from "./utils/logger";
  * A worker that polls the shadow table for dirty records and processes them.
  * @param config - The configuration for the worker.
  */
-export class Worker {
+export class Worker<T> {
   private pool: pg.Pool;
   private pollingInterval: number;
   running: Promise<void> | null = null;
   private connected: boolean = false;
   private timer: NodeJS.Timeout | null = null;
+  private createJobsTimer: NodeJS.Timeout | null = null;
+  private createJobsRunning: Promise<void> | null = null;
   private logger: Logger;
 
   // Config:
@@ -32,7 +34,7 @@ export class Worker {
   private initialRetryDelay: number;
   private batchSize: number;
   private schemaName: string;
-  private chunkGenerator: (doc: any) => Promise<ChunkData[]>;
+  private chunkGenerator: (doc: T) => Promise<ChunkData[]>;
   private embeddingGenerator: (
     chunk: ChunkData,
     index: number,
@@ -46,8 +48,8 @@ export class Worker {
   private embeddingDimension: number | null = null;
   private docIdType: string | null = null;
   private stalledJobTimeoutMinutes: number;
-  constructor(private config: WorkerConfig) {
-    this.pollingInterval = config.pollingIntervalMs;
+  constructor(private config: WorkerConfig<T>) {
+    this.pollingInterval = config.pollingIntervalMs || 1000;
     this.maxRetries = config.maxRetries || 3;
     this.initialRetryDelay = config.initialRetryDelayMs || 1000;
     this.batchSize = config.batchSize || 5;
@@ -58,7 +60,9 @@ export class Worker {
     this.pool = new pg.Pool({ connectionString: config.connectionString });
     this.schemaName = `${PREFIX}${config.trackerName.replace(/[^a-zA-Z0-9_]/g, "_")}`;
 
-    this.chunkGenerator = config.chunkGenerator || defaultChunkGenerator;
+    this.chunkGenerator =
+      config.chunkGenerator ||
+      (defaultChunkGenerator as (doc: T) => Promise<ChunkData[]>);
     this.embeddingGenerator =
       config.embeddingGenerator || defaultEmbeddingGenerator;
     this.hashFunction = config.hashFunction || defaultHash;
@@ -178,11 +182,20 @@ export class Worker {
 
     // Start the polling loop
     this.logger.info("Worker started", { workerId: this.workerId });
+    await this.runCreateJobs();
     await this.run();
   }
 
   async pause(): Promise<void> {
     this.logger.info("Pausing worker", { workerId: this.workerId });
+    if (this.createJobsTimer) {
+      clearTimeout(this.createJobsTimer);
+      this.createJobsTimer = null;
+    }
+    if (this.createJobsRunning) {
+      await this.createJobsRunning;
+      this.createJobsRunning = null;
+    }
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -203,17 +216,23 @@ export class Worker {
     this.logger.info("Worker stopped", { workerId: this.workerId });
   }
 
-  async run(): Promise<void> {
-    // If not resolved yet
-    if (this.running) {
-      return;
-    }
+  async runCreateJobs(): Promise<void> {
+    if (this.createJobsRunning) return;
+    this.createJobsTimer = setTimeout(async () => {
+      // Double-check connection status before starting work
+      if (!this.connected || this.createJobsRunning) return;
+      this.createJobsRunning = this.createJobs();
+      await this.createJobsRunning;
+      this.createJobsRunning = null;
+      await this.runCreateJobs();
+    }, this.pollingInterval);
+  }
 
+  async run(): Promise<void> {
+    if (this.running) return;
     this.timer = setTimeout(async () => {
       // Double-check connection status before starting work
-      if (!this.connected || this.running) {
-        return;
-      }
+      if (!this.connected || this.running) return;
       this.running = this.poll();
       await this.running;
       this.running = null;
@@ -225,10 +244,6 @@ export class Worker {
   async poll(): Promise<void> {
     try {
       this.logger.debug("Starting polling cycle", { workerId: this.workerId });
-
-      // Create jobs
-      this.logger.debug("Creating jobs from shadow table");
-      await this.createJobs();
 
       // Claim jobs
       this.logger.debug("Finding and claiming pending jobs");
@@ -311,19 +326,13 @@ export class Worker {
             WHERE
               s.vector_clock > COALESCE(c.max_chunk_vector_clock, 0)
           ),
-          -- ...and skip the documents that are already in the work queue
+          -- ...and skip the (document, vector_clock) pairs that are already in the work queue
           current_work AS (
             SELECT
               doc_id,
               vector_clock
             FROM
               ${this.schemaName}.${WORK_QUEUE_TABLE}
-            WHERE
-              status = 'pending'
-              OR status = 'processing'
-              OR status = 'completed'
-              OR status = 'failed'
-              OR status = 'skipped'
           )
         SELECT
           w.doc_id,
@@ -339,9 +348,7 @@ export class Worker {
           w.shadow_clock - w.chunk_clock DESC, -- Prioritize documents most out of sync
           w.shadow_clock ASC -- Then older documents first
         LIMIT
-          ${this.batchSize}
-        FOR UPDATE
-          SKIP LOCKED;
+          ${this.batchSize};
       `);
 
       if (res.rows.length > 0) {
@@ -367,6 +374,7 @@ export class Worker {
               `,
             )
             .join(",")}
+          ON CONFLICT DO NOTHING;
         `);
       } else {
         this.logger.debug("No new jobs to create", { workerId: this.workerId });
@@ -540,6 +548,27 @@ export class Worker {
     );
   }
 
+  async failJob(doc_id: string, vector_clock: number, error: Error) {
+    this.logger.debug("Failing job", {
+      docId: doc_id,
+      vectorClock: vector_clock,
+      error: error.message,
+    });
+    await this.pool.query(
+      sql`
+        UPDATE ${this.schemaName}.${WORK_QUEUE_TABLE}
+        SET
+          status = 'failed',
+          error = $3,
+          completed_at = NOW()
+        WHERE
+          doc_id = $1
+          AND vector_clock = $2
+      `,
+      [doc_id, vector_clock, error],
+    );
+  }
+
   async getLatestJob(doc_id: string): Promise<{ vector_clock: number } | null> {
     const res = await this.pool.query(
       sql`
@@ -563,6 +592,11 @@ export class Worker {
   }
 
   async processJob(job: Job): Promise<void> {
+    this.logger.debug("Processing job", {
+      docId: job.doc_id,
+      vectorClock: job.vector_clock,
+      workerId: this.workerId,
+    });
     // If there's a newer job, complete the current job
     const latestJob = await this.getLatestJob(job.doc_id);
     if (latestJob && latestJob.vector_clock > job.vector_clock) {
@@ -597,7 +631,7 @@ export class Worker {
       await this.skipJob(job.doc_id, job.vector_clock, "Document deleted");
       return;
     }
-    const doc = docRes.rows[0];
+    const doc = docRes.rows[0] as T;
 
     // Generate chunks
     const chunks = await this.chunkGenerator(doc);
@@ -741,8 +775,9 @@ export class Worker {
       if (job.retry_count < this.maxRetries) {
         await this.retryJob(job, err as Error);
         return;
+      } else {
+        await this.failJob(job.doc_id, job.vector_clock, err as Error);
       }
-      throw err;
     } finally {
       client.release();
     }
@@ -952,10 +987,15 @@ async function defaultHash(chunk: ChunkData): Promise<string> {
   return hash;
 }
 
-function defaultChunkGenerator(doc: any): Promise<ChunkData[]> {
-  // TODO
-  // try to get doc.content and treat the entire content as one chunk.
-  return Promise.resolve([{ text: doc?.content, json: doc, blob: doc }]);
+function defaultChunkGenerator(doc: {
+  text?: string;
+  blob?: Blob;
+  [key: string]: any;
+}): Promise<ChunkData[]> {
+  // try to get doc.text and treat the entire content as one chunk.
+  const { text, blob, ...json } = { ...doc };
+  // keep blob out of json
+  return Promise.resolve([{ text, json: { ...json, text }, blob }]);
 }
 
 function defaultEmbeddingGenerator(

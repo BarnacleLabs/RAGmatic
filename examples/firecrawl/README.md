@@ -20,7 +20,7 @@ This example demonstrates a complete RAG (Retrieval Augmented Generation) pipeli
 
 ## Setup
 
-1. Clone this repository:
+1. Clone this example:
 
 ```bash
 pnpx degit BarnacleLabs/RAGmatic/examples/firecrawl firecrawl

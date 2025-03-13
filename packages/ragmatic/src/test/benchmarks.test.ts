@@ -219,7 +219,7 @@ describe("Performance Benchmarks", () => {
     };
 
     // Setup worker config
-    const workerConfig: WorkerConfig = {
+    const workerConfig: WorkerConfig<any> = {
       connectionString: dbConfig.connectionString,
       trackerName: dbConfig.trackerName,
       pollingIntervalMs: 10,
@@ -368,7 +368,7 @@ describe("Performance Benchmarks", () => {
     };
 
     // Setup worker config
-    const workerConfig: WorkerConfig = {
+    const workerConfig: WorkerConfig<any> = {
       connectionString: dbConfig.connectionString,
       trackerName: dbConfig.trackerName,
       pollingIntervalMs: 50, // Slowed from 10ms to reduce concurrent update conflicts

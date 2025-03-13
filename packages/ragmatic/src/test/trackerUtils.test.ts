@@ -2,12 +2,12 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 // @ts-ignore
 import pg from "pg";
 import {
-  setup,
   destroyTracker,
   getTrackerConfig,
   countRemainingDocuments,
   reprocessDocuments,
-} from "../index";
+} from "../trackerUtils";
+import { setup } from "../dbSetup";
 import { sql } from "../utils/utils";
 
 // Test connection string - update as needed for your test environment
