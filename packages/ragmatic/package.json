@@ -10,7 +10,8 @@
     "coverage": "vitest run --coverage --reporter verbose",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write src",
-    "prepare": "npm run build"
+    "prepare": "pnpm run build",
+    "prepublishOnly": "pnpm run test"
   },
   "keywords": [
     "postgres",

@@ -46,8 +46,8 @@ and more:
 ## How does RAGmatic work?
 
 1. RAGmatic works by tracking changes to your chosen table via database triggers in a new PostgreSQL schema: `ragmatic_<tracker_name>`.
-2. Once the tracking is setup via `ragmatic.setup()`, you can continue to use your database as normal.
-3. Any changes to your table will be detected and processed by `ragmatic.Worker`-s. Chunking and embedding generation is fully configurable and already de-duplicates data to avoid expensive and unnecessary re-embeddings.
+2. Once the tracking is setup via `RAGmatic.create()`, you can continue to use your database as normal.
+3. Any changes to your table will be detected and processed by RAGmatic's workers. Chunking and embedding generation is fully configurable and already de-duplicates data to avoid expensive and unnecessary re-embeddings.
 4. Processed embeddings are stored in the `ragmatic_<tracker_name>.chunks` table as pgvector's vector data type. You can search these vectors with pgvector's [`vector_similarity_ops`](https://github.com/pgvector/pgvector?tab=readme-ov-file#querying) functions in SQL and even join them with your existing tables to filter results.
 
 ## 🚀 Getting Started
@@ -61,51 +61,46 @@ npm install ragmatic
 2. Setup tracking for your table. This will create the necessary tables in your database under a `ragmatic_<tracker_name>` schema.
 
 ```ts
-import { setup } from "ragmatic";
-
-setup({
-  connectionString: process.env.PG_CONNECTION_STRING!,
-  documentsTable: "blog_posts",
-  trackerName: "blog_posts_openai",
-  embeddingDimension: 1536,
-}).then(() => {
-  console.log("RAGmatic is ready to use!");
-});
-```
-
-3. Create an embedding pipeline and start the worker. This will continuously embed your data and store the embeddings in the `ragmatic_<tracker_name>.chunks` table.
-
-```ts
+import RAGmatic from "ragmatic";
 import { Worker } from "ragmatic";
 import { chunk } from "llm-chunk";
 import { OpenAI } from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const worker = new Worker({
-  connectionString: process.env.PG_CONNECTION_STRING!,
+const blogPostsToEmbeddings = await RAGmatic.create<BlogPost>({
+  connectionString: process.env.DATABASE_URL!,
+  documentsTable: "blog_posts",
   trackerName: "blog_posts_openai",
-  pollingIntervalMs: 1000,
-  chunkGenerator: async (doc: any) => {
+  embeddingDimension: 1536,
+  transformDocumentToChunks: async (doc: any) => {
     return chunk(doc.content, {
       minLength: 100,
       maxLength: 1000,
       overlap: 20,
-    });
+      splitter: "sentence",
+    }).map((chunk, index) => ({
+      text: chunk,
+      title: doc.title,
+    }));
   },
-  embeddingGenerator: async (chunk: ChunkData) => {
+  embedChunks: async (chunk: ChunkData) => {
     const embedding = await openai.embeddings.create({
       model: "text-embedding-3-small",
-      input: chunk.text,
+      input: `title: ${chunk.title} content: ${chunk.text}`,
     });
     return {
       embedding: embedding.data[0].embedding,
-      text: chunk,
+      text: `title: ${chunk.title} content: ${chunk.text}`,
     };
   },
 });
+```
 
-worker.start();
+3. Start the embedding pipeline. This will continuously embed your data and store the embeddings in the `ragmatic_<tracker_name>.chunks` table.
+
+```ts
+await blogPostsToEmbeddings.start();
 ```
 
 4. Search your data:
@@ -114,7 +109,7 @@ worker.start();
 import { pg } from "pg";
 
 const client = new pg.Client({
-  connectionString: process.env.PG_CONNECTION_STRING!,
+  connectionString: process.env.DATABASE_URL!,
 });
 await client.connect();
 
@@ -178,13 +173,13 @@ You can override the default hash function by providing your own implementation 
 
 ### How can I remove RAGmatic from my database?
 
-Call `ragmatic.destroyTracker(process.env.PG_CONNECTION_STRING!, "tracker_name")` to drop the `ragmatic_<tracker_name>` schema.
+Call `pipeline.destroy()` to drop the `ragmatic_<tracker_name>` schema.
 
 This will remove all the tables and objects created by RAGmatic.
 
 ### How can I monitor worker processing?
 
-You can check on the job queue by querying the `ragmatic_<tracker_name>.work_queue` table or calling `ragmatic.countRemainingDocuments(process.env.PG_CONNECTION_STRING!, "tracker_name")`
+You can check on the job queue by querying the `ragmatic_<tracker_name>.work_queue` table or calling `pipeline.countRemainingDocuments()`
 
 ### My table has a lot of columns, how can I track them all?
 
@@ -192,7 +187,7 @@ When setting up your tracker, you don't need specify which columns to track, bec
 
 ### I just updated my worker's code, how can I migrate to it?
 
-Call `ragmatic.reprocessDocuments(process.env.PG_CONNECTION_STRING!, "tracker_name")` to mark all your existing rows for re-embedding and start your worker with the new code.
+Call `pipeline.reprocessAll()` to mark all your existing rows for re-embedding and start your worker with the new code.
 
 ### What is HyDE and why should I care?
 

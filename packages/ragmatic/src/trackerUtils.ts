@@ -128,7 +128,7 @@ export async function countRemainingDocuments(
     const countPendingJobsQuery = `
       SELECT COUNT(*) as count
       FROM ${schemaName}.${WORK_QUEUE_TABLE}
-      WHERE status = 'pending';
+      WHERE status = 'pending' OR status = 'processing';
     `;
     const countWorkQueueResult = await client.query(countPendingJobsQuery);
 
@@ -216,6 +216,15 @@ export async function reprocessDocuments(
       );
     `;
     await client.query(insertQuery);
+
+    // Update all chunk hashes to skip deduplication logic
+    const chunksTable = config.chunksTable;
+    const updateChunkHashesQuery = `
+      UPDATE ${chunksTable}
+      SET chunk_hash = ''
+      WHERE chunk_hash IS NOT NULL;
+    `;
+    await client.query(updateChunkHashesQuery);
 
     await client.query("COMMIT");
   } catch (error) {

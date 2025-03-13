@@ -45,7 +45,7 @@ export async function setup(config: Config): Promise<void> {
 
   // required config
   const documentsTable = config.documentsTable.replaceAll(
-    /[^a-zA-Z0-9_]/g,
+    /[^a-zA-Z0-9_\.]/g,
     "_",
   );
   const trackerName = config.trackerName.replaceAll(/[^a-zA-Z0-9_]/g, "_");
@@ -131,7 +131,7 @@ export async function setup(config: Config): Promise<void> {
         doc_id ${docIdType} NOT NULL,
         vector_clock BIGINT NOT NULL DEFAULT 1, -- At 1 billion increments per second, BIGINT lasts about 292 years.
         UNIQUE (doc_id),
-        CONSTRAINT fk_documents_sync FOREIGN KEY (doc_id) REFERENCES public.${documentsTable} (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        CONSTRAINT fk_documents_sync FOREIGN KEY (doc_id) REFERENCES ${documentsTable} (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
       );
     `);
 
@@ -320,7 +320,7 @@ export async function setup(config: Config): Promise<void> {
       SELECT
         id
       FROM
-        public.${documentsTable} d
+        ${documentsTable} d
       WHERE
         NOT EXISTS (
           SELECT

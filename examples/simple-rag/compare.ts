@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { cosineDistance, desc, eq, gt, sql } from "drizzle-orm";
 import { movies } from "./db/schema";
 import { moviesChunks } from "./pipelines/openai/ragmatic.schema";
+import { moviesChunks as moviesChunksHyde } from "./pipelines/openai-hyde/ragmatic.schema";
 import * as dotenv from "dotenv";
 
 dotenv.config();
@@ -19,7 +20,7 @@ export const generateEmbedding = async (input: string): Promise<number[]> => {
 const db = drizzle(process.env.DATABASE_URL!);
 
 const findSimilarMovies = async (
-  chunksTable: typeof moviesChunks,
+  chunksTable: typeof moviesChunks | typeof moviesChunksHyde,
   queryEmbedding: number[],
   topK: number = 4,
 ) => {
@@ -48,7 +49,15 @@ const findSimilarMovies = async (
 // Get user input from command line
 const query = process.argv[2] || "a black and white movie about a trial";
 const queryEmbedding = await generateEmbedding(query);
+
+// Compare the results of the two pipelines
 const similarMovies = await findSimilarMovies(moviesChunks, queryEmbedding);
 console.log(`Similar movies to "${query}" (OpenAI):`, similarMovies);
+
+const similarMoviesHyde = await findSimilarMovies(
+  moviesChunksHyde,
+  queryEmbedding,
+);
+console.log(`Similar movies to "${query}" (OpenAI-Hyde):`, similarMoviesHyde);
 
 process.exit(0);

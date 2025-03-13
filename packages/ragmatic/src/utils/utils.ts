@@ -4,6 +4,8 @@ import { PREFIX } from "./constants";
 
 export async function cleanupDatabase(client: pg.Client): Promise<void> {
   try {
+    await client.query("BEGIN");
+
     // find all schemas starting with prefix
     const schemas = await client.query(`
       SELECT nspname FROM pg_namespace WHERE nspname LIKE '${PREFIX}%'
@@ -23,7 +25,10 @@ export async function cleanupDatabase(client: pg.Client): Promise<void> {
     for (const table of tables.rows) {
       await client.query(`DROP TABLE IF EXISTS ${table.tablename} CASCADE;`);
     }
+
+    await client.query("COMMIT");
   } catch (error) {
+    await client.query("ROLLBACK");
     console.error("Error during database cleanup:", error);
     throw error;
   }
