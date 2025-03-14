@@ -5,7 +5,7 @@
 
 <h1 align="center">RAGmatic</h1>
 
-<p align="center">A pragmatic approach to generate and maintain up-to-date embeddings for your PostgreSQL tables, with the flexibility of your own embedding pipelines.</p>
+<p align="center">The pragmatic way to generate and maintain up-to-date embeddings for PostgreSQL tables</p>
 
 <div align="center">
 
@@ -24,7 +24,7 @@
 
 ## What is RAGmatic?
 
-RAGmatic is a library for creating and continuously synchronizing embeddings for your data in PostgreSQL.
+RAGmatic automatically creates and updates [pgvector](https://github.com/pgvector/pgvector) embeddings for your data in PostgreSQL, with the flexibility of your own embedding pipelines.
 
 ## Features
 
@@ -50,7 +50,14 @@ and more:
 3. Any changes to your table will be detected and processed by RAGmatic's workers. Chunking and embedding generation is fully configurable and already de-duplicates data to avoid expensive and unnecessary re-embeddings.
 4. Processed embeddings are stored in the `ragmatic_<pipeline_name>.chunks` table as pgvector's vector data type. You can search these vectors with pgvector's [`vector_similarity_ops`](https://github.com/pgvector/pgvector?tab=readme-ov-file#querying) functions in SQL and even join them with your existing tables to filter results.
 
-## 🚀 Getting Started
+Check out our ready-to-use examples or create your own custom pipeline:
+
+## 🔥 Examples
+
+- [Simple RAG](./examples/simple-rag)
+- [Crawl websites with Firecrawl and search them with RAGmatic and OpenAI](./examples/firecrawl)
+
+## 🚀 Getting Started with a new pipeline
 
 1. Install the library:
 
@@ -139,8 +146,6 @@ const result = await client.query(
 );
 ```
 
-See the [examples](./examples) for more.
-
 <!-- ## 📚 Documentation
 
 - [API Reference](./docs/api-reference.md)
@@ -148,22 +153,25 @@ See the [examples](./examples) for more.
 - [FAQ](./docs/faq.md)
 - [Examples](./docs/examples.md) -->
 
-## 💡 Examples
-
-- [Simple RAG](./examples/simple-rag)
-- [Crawl websites with Firecrawl and search them with RAGmatic and OpenAI](./examples/firecrawl)
-
 ## 🧐 FAQ
 
-### What is the difference between RAGmatic and pgvector?
+### What is pgvector?
 
-pgvector is a vector extension for PostgreSQL, it allows you to store and search vectors. RAGmatic is an orchestration library built on top of pgvector allowing you to keep your embeddings up to date.
+pgvector is a PostgreSQL extension that allows you to store embeddings and perform vector search with pgvector's vector data type and similarity search functions.
+
+### What does RAGmatic do over pgvector?
+
+RAGmatic is an orchestration library built on top of pgvector allowing you to always keep your embeddings up to date.
+
+### Why not use a dedicated vector database like Pinecone?
+
+pgvector regularily outperforms Pinecone on benchmarks and if you are already running PostgreSQL, why add another pricey service to your stack?
 
 ### What is the difference between RAGmatic and pgai?
 
-Both are tools for keeping your embeddings in sync with your data in PostgreSQL, however pgai comes with a few drawbacks: it is a database extension, processing happens in the database, and you are limited to using their pre-built embedding pipelines.
+Both are tools for keeping your embeddings in sync with your data in PostgreSQL, however pgai is implemented as a database extension and you are limited to using their pre-built embedding pipelines.
 
-We made RAGmatic to be a more flexible and powerful alternative to pgai, allowing you to use your own embedding pipeline defined in TypeScript, enabling you to use any LLM, chunking algorithm and metadata generation to create your own state of the art RAG system.
+We made RAGmatic to be a more flexible alternative to pgai, allowing you to use your own embedding pipeline defined in TypeScript, enabling you to use any LLM, chunking algorithm and metadata generation to create your own state of the art RAG system.
 
 ### My table has a lot of columns, how can I track them all?
 
