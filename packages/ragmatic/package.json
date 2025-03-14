@@ -22,6 +22,7 @@
   ],
   "author": "daralthus",
   "license": "MIT",
+  "repository": "https://github.com/BarnacleLabs/RAGmatic",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",
