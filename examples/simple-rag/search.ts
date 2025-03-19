@@ -1,54 +1,52 @@
-import OpenAI from "openai";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { cosineDistance, desc, eq, gt, sql } from "drizzle-orm";
-import { movies } from "./db/schema";
-import { moviesChunks } from "./pipelines/openai/ragmatic.schema";
 import * as dotenv from "dotenv";
+import { searchWithOpenAI } from "./pipelines/openai/search";
+import { searchWithOpenAIHyde } from "./pipelines/openai-hyde/search";
+import { searchWithCohere } from "./pipelines/cohere/search";
+import { searchWithOllama } from "./pipelines/ollama/search";
 
 dotenv.config();
 
-export const generateEmbedding = async (input: string): Promise<number[]> => {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-  const { data } = await openai.embeddings.create({
-    model: "text-embedding-3-small",
-    input: input.replaceAll("\n", " "),
-  });
-  return data[0].embedding;
-};
-
-const db = drizzle(process.env.DATABASE_URL!);
-
-const findSimilarMovies = async (
-  chunksTable: typeof moviesChunks,
-  queryEmbedding: number[],
-  topK: number = 4,
-) => {
-  const similarity = sql<number>`
-    1 - (${cosineDistance(chunksTable.embedding, queryEmbedding)})
-  `;
-  // You don't need to left join the movies table,
-  // but if you do you can eg. get the year of the movie or filter on it
-  const similarMovies = await db
-    .select({
-      similarity,
-      chunk: chunksTable.chunkText,
-      metadata: chunksTable.chunkJson,
-      docId: chunksTable.docId,
-      title: movies.title,
-      year: movies.year,
-    })
-    .from(chunksTable)
-    .leftJoin(movies, eq(chunksTable.docId, movies.id))
-    .where(gt(similarity, 0.2))
-    .orderBy((t) => desc(t.similarity))
-    .limit(topK);
-  return similarMovies;
-};
-
 // Get user input from command line
 const query = process.argv[2] || "a black and white movie about a trial";
-const queryEmbedding = await generateEmbedding(query);
-const similarMovies = await findSimilarMovies(moviesChunks, queryEmbedding);
-console.log(`Similar movies to "${query}" (OpenAI):`, similarMovies);
+const pipeline = process.argv[3] || "all"; // 'openai', 'cohere', 'openai-hyde', 'ollama', or 'all'
 
-process.exit(0);
+const runSearch = async () => {
+  // Handle OpenAI search
+  if (pipeline === "openai" || pipeline === "all") {
+    const { results, success } = await searchWithOpenAI({ query });
+    if (success) {
+      console.log(`\nSimilar movies to "${query}" (OpenAI):`, results);
+    }
+  }
+
+  // Handle OpenAI-Hyde search
+  if (pipeline === "openai-hyde" || pipeline === "all") {
+    const { results, success } = await searchWithOpenAIHyde({ query });
+    if (success) {
+      console.log(`\nSimilar movies to "${query}" (OpenAI-Hyde):`, results);
+    }
+  }
+
+  // Handle Cohere search
+  if (pipeline === "cohere" || pipeline === "all") {
+    const { results, success } = await searchWithCohere({ query });
+    if (success) {
+      console.log(`\nSimilar movies to "${query}" (Cohere):`, results);
+    }
+  }
+
+  // Handle Ollama search
+  if (pipeline === "ollama" || pipeline === "all") {
+    const { results, success } = await searchWithOllama({ query });
+    if (success) {
+      console.log(`\nSimilar movies to "${query}" (Ollama/Nomic):`, results);
+    }
+  }
+};
+
+runSearch()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error("Error running search:", error);
+    process.exit(1);
+  });

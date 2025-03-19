@@ -8,6 +8,8 @@
     "seed": "tsx db/seed.ts",
     "openai": "tsx pipelines/openai/index.ts",
     "openai-hyde": "tsx pipelines/openai-hyde/index.ts",
+    "cohere": "tsx pipelines/cohere/index.ts",
+    "ollama": "tsx pipelines/ollama/index.ts",
     "search": "tsx search.ts",
     "compare": "tsx compare.ts",
     "db:up": "docker compose -f docker-compose.yml up -d",
@@ -17,9 +19,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "cohere-ai": "^7.16.0",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.39.3",
     "llm-chunk": "^0.0.1",
+    "node-fetch": "^3.3.2",
     "openai": "^4.85.0",
     "pg": "^8.13.1",
     "ragmatic": "workspace:*"

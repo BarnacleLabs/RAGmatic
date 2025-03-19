@@ -7,7 +7,17 @@ This example demonstrates how to build a Retrieval-Augmented Generation (RAG) sy
 - Docker and Docker Compose
 - Node.js (v20 or higher)
 - npm
-- OpenAI API key
+- OpenAI API key (for OpenAI pipelines)
+- Cohere API key (for Cohere pipeline)
+- Ollama (for Ollama pipeline with Nomic embedding models)
+
+For the Ollama pipeline, you'll need to install Ollama and pull the Nomic embedding model:
+
+```bash
+# Install Ollama from https://ollama.com/
+# Then pull the Nomic model
+ollama pull nomic-embed-text
+```
 
 ## Setup
 
@@ -45,21 +55,37 @@ Follow these steps in order to set up and run the movie RAG system:
 npm run seed
 ```
 
-2. Start a RAGmatic pipeline:
+2. Start one or more RAGmatic pipelines:
 
 ```bash
-npm run openai
+npm run openai        # Uses OpenAI's text-embedding-3-small model
+npm run cohere        # Uses Cohere's embed-english-v3.0 model
+npm run openai-hyde   # Uses OpenAI with Hypothetical Document Embeddings
+npm run ollama        # Uses Ollama with Nomic's embed-text model
 ```
 
 3. Run semantic searches on your movie database:
 
 ```bash
-npm run search "a black and white movie about a trial"
+npm run search "a black and white movie about a trial"          # Searches across all available pipelines
+npm run search "movies about space" openai                      # Search using only OpenAI pipeline
+npm run search "comedies from the 90s" cohere                   # Search using only Cohere pipeline
+npm run search "sci-fi thriller" openai-hyde                    # Search using only OpenAI-Hyde pipeline
+npm run search "action movies" ollama                           # Search using only Ollama/Nomic pipeline
 ```
+
+The search tool will automatically check which pipelines have been run and only search those that have embeddings available.
 
 ### How It Works
 
-Take a look at the `pipelines/openai/index.ts` file to see how the RAGmatic pipeline is configured. It transforms the movie data into chunks, embeds them using OpenAI and then stores the embeddings in a table. At query time, the `search.ts` file will use drizzle to query the embeddings and retrieve the most similar movies.
+Take a look at the pipeline files to see how the RAGmatic pipeline is configured:
+
+- `pipelines/openai/index.ts` - Uses OpenAI embeddings
+- `pipelines/cohere/index.ts` - Uses Cohere embeddings
+- `pipelines/openai-hyde/index.ts` - Uses OpenAI with HyDE technique
+- `pipelines/ollama/index.ts` - Uses Ollama with Nomic embeddings
+
+Each pipeline transforms the movie data into chunks, embeds them using the specified model, and then stores the embeddings in a table. At query time, the `search.ts` file will use drizzle to query the embeddings and retrieve the most similar movies.
 
 ### Example Queries
 
@@ -69,21 +95,26 @@ Try searching with queries like:
 - "What are some comedy movies with Tom Hanks?"
 - "Show me highly rated sci-fi movies"
 
-## Advanced: Compare your results with a second embedding pipeline leveraging Hypothetical Document Embeddings
+## Advanced: Compare results across different embedding pipelines
 
-To compare the results of the two pipelines:
+To compare the results from different pipelines:
 
-1. Start the second pipeline:
+1. Run the pipelines you want to compare:
 
 ```bash
-npm run openai-hyde
+npm run openai        # Standard OpenAI embeddings
+npm run openai-hyde   # OpenAI with Hypothetical Document Embeddings
+npm run cohere        # Cohere embeddings
+npm run ollama        # Ollama with Nomic embeddings
 ```
 
 2. Run the comparison:
 
 ```bash
-npm run compare
+npm run compare "your search query"
 ```
+
+The comparison tool will automatically check which pipelines have been run and only show results from those that have embeddings available.
 
 ### What is HyDE and why should I care?
 
