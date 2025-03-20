@@ -78,7 +78,7 @@ The search tool will automatically check which pipelines have been run and only 
 
 ### How It Works
 
-Take a look at the pipeline files to see how the RAGmatic pipeline is configured:
+Take a look at the pipeline files to see how each of the RAGmatic pipelines are configured:
 
 - `pipelines/openai/index.ts` - Uses OpenAI embeddings
 - `pipelines/cohere/index.ts` - Uses Cohere embeddings
@@ -94,27 +94,6 @@ Try searching with queries like:
 - "Find me action movies from the 90s"
 - "What are some comedy movies with Tom Hanks?"
 - "Show me highly rated sci-fi movies"
-
-## Advanced: Compare results across different embedding pipelines
-
-To compare the results from different pipelines:
-
-1. Run the pipelines you want to compare:
-
-```bash
-npm run openai        # Standard OpenAI embeddings
-npm run openai-hyde   # OpenAI with Hypothetical Document Embeddings
-npm run cohere        # Cohere embeddings
-npm run ollama        # Ollama with Nomic embeddings
-```
-
-2. Run the comparison:
-
-```bash
-npm run compare "your search query"
-```
-
-The comparison tool will automatically check which pipelines have been run and only show results from those that have embeddings available.
 
 ### What is HyDE and why should I care?
 

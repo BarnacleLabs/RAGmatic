@@ -56,6 +56,7 @@ Check out our ready-to-use examples or create your own custom pipeline:
 
 - [Simple RAG](./examples/simple-rag)
 - [Crawl websites with Firecrawl and search them with RAGmatic and OpenAI](./examples/firecrawl)
+- [Customer Support chatbot on CMS content with Assistant UI](./examples/customer-support-assistant-ui)
 
 ## 🚀 Getting Started with a new pipeline
 

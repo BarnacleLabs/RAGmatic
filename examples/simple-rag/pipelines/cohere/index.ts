@@ -40,7 +40,7 @@ const chunkToEmbeddingFunction = async (
 
   console.log(`done embedding chunk ${text}`);
   return {
-    embedding: response.embeddings[0],
+    embedding: (response.embeddings as number[][])[0],
     text,
   };
 };

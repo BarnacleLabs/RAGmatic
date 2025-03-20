@@ -21,8 +21,8 @@ export interface SearchResult {
   chunk: string;
   metadata: any;
   docId: number;
-  title: string;
-  year: number;
+  title: string | null;
+  year: number | null;
 }
 
 // Search options

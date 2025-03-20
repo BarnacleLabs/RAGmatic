@@ -16,8 +16,8 @@ export interface SearchResult {
   chunk: string;
   metadata: any;
   docId: number;
-  title: string;
-  year: number;
+  title: string | null;
+  year: number | null;
 }
 
 // Search options
@@ -39,7 +39,7 @@ const generateEmbedding = async (input: string): Promise<number[]> => {
       inputType: "search_query",
     });
 
-    return response.embeddings[0];
+    return (response.embeddings as number[][])[0];
   } catch (error) {
     console.error(
       "\nError generating Cohere embedding. Check your Cohere API key.",
