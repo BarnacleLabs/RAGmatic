@@ -23,6 +23,9 @@ interface QueryRow {
   index?: number;
   updated_at?: Date;
   indexname?: string;
+  conname?: string;
+  confdeltype?: string;
+  condeferrable?: string;
 }
 
 interface ConfigRow {
@@ -136,6 +139,15 @@ describe("Database Setup Module", () => {
   });
 
   afterEach(async () => {
+    await client.query(`RESET SESSION AUTHORIZATION;`);
+    await client.query(`DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'test_user') THEN
+            DROP OWNED BY test_user CASCADE;
+        END IF;
+    END;
+    $$;`);
+    await client.query(`DROP USER IF EXISTS test_user;`);
     await cleanupDatabase(client);
   });
 
@@ -206,6 +218,18 @@ describe("Database Setup Module", () => {
       ]),
     );
 
+    // check constraint
+    const constraintRes = await client.query<QueryRow>(`
+      SELECT conname, condeferrable, confdeltype
+      FROM pg_constraint
+      WHERE conname = 'fk_documents_sync';
+    `);
+    // has ON DELETE CASCADE
+    expect(constraintRes.rows.length).toBe(1);
+    expect(constraintRes.rows[0].conname).toBe("fk_documents_sync");
+    expect(constraintRes.rows[0].condeferrable).toBe(true);
+    expect(constraintRes.rows[0].confdeltype).toBe("c");
+
     // test delete is cascading
     // insert a document
     const now = new Date();
@@ -241,6 +265,31 @@ describe("Database Setup Module", () => {
     SELECT * FROM ${schemaName}.shadows WHERE doc_id = 1
       `);
     expect(shadowRes2.rows.length).toBe(0);
+
+    // repeat setup
+    // drop the documents table
+    await client.query(`DROP TABLE IF EXISTS ${config.documentsTable} CASCADE`);
+    // create a new documents table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ${config.documentsTable} (
+        id SERIAL PRIMARY KEY,
+        content TEXT NOT NULL,
+        updated_at TIMESTAMP NOT NULL
+      );
+    `);
+    await setup(config);
+
+    // check constraint is still valid
+    const constraintRes2 = await client.query<QueryRow>(`
+      SELECT conname, condeferrable, confdeltype
+      FROM pg_constraint
+      WHERE conname = 'fk_documents_sync';
+    `);
+    // has ON DELETE CASCADE
+    expect(constraintRes2.rows.length).toBe(1);
+    expect(constraintRes2.rows[0].conname).toBe("fk_documents_sync");
+    expect(constraintRes2.rows[0].condeferrable).toBe(true);
+    expect(constraintRes2.rows[0].confdeltype).toBe("c");
   });
 
   it("should create the chunks table with the correct columns and cascade on delete", async () => {
@@ -284,6 +333,18 @@ describe("Database Setup Module", () => {
       `idx_${schemaName}_chunks_doc_id_vector_clock`,
     );
     expect(indexNames).toContain(`idx_${schemaName}_chunks_doc_id_index`);
+
+    // check constraint
+    const constraintRes = await client.query<QueryRow>(`
+      SELECT conname, condeferrable, confdeltype
+      FROM pg_constraint
+      WHERE conname = 'fk_doc_chunks';
+    `);
+    // has ON DELETE CASCADE
+    expect(constraintRes.rows.length).toBe(1);
+    expect(constraintRes.rows[0].conname).toBe("fk_doc_chunks");
+    expect(constraintRes.rows[0].condeferrable).toBe(true);
+    expect(constraintRes.rows[0].confdeltype).toBe("c");
 
     // test delete is cascading
     // insert a document
@@ -329,6 +390,31 @@ describe("Database Setup Module", () => {
     SELECT * FROM ${schemaName}.chunks WHERE doc_id = 1
       `);
     expect(chunkRes2.rows.length).toBe(0);
+
+    // repeat setup
+    // drop the documents table
+    await client.query(`DROP TABLE IF EXISTS ${config.documentsTable} CASCADE`);
+    // create a new documents table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ${config.documentsTable} (
+        id SERIAL PRIMARY KEY,
+        content TEXT NOT NULL,
+        updated_at TIMESTAMP NOT NULL
+      );
+    `);
+    await setup(config);
+
+    // check constraint is still valid
+    const constraintRes2 = await client.query<QueryRow>(`
+      SELECT conname, condeferrable, confdeltype
+      FROM pg_constraint
+      WHERE conname = 'fk_doc_chunks';
+    `);
+    // has ON DELETE CASCADE
+    expect(constraintRes2.rows.length).toBe(1);
+    expect(constraintRes2.rows[0].conname).toBe("fk_doc_chunks");
+    expect(constraintRes2.rows[0].condeferrable).toBe(true);
+    expect(constraintRes2.rows[0].confdeltype).toBe("c");
   });
 
   it("should create the work queue table with proper indexes", async () => {
@@ -530,45 +616,79 @@ describe("Database Setup Module", () => {
     expect(chunksTableExists.rows[0].exists).toBe(false);
   });
 
-  it("should properly clean up orphaned records when documents table is dropped", async () => {
+  it("should drop the schema if the documents table is dropped (given superuser privileges to setup event triggers)", async () => {
+    // verify the schema exists
+    const schemaExists = await client.query(
+      `SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = $1)`,
+      [schemaName],
+    );
+    expect(schemaExists.rows[0].exists).toBe(true);
+
+    // Drop the documents table
+    await client.query(`DROP TABLE ${config.documentsTable} CASCADE; `);
+
+    // Verify the schema is dropped
+    const schemaExists2 = await client.query(
+      `SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = $1)`,
+      [schemaName],
+    );
+    expect(schemaExists2.rows[0].exists).toBe(false);
+  });
+
+  it("should properly clean up orphaned records when documents table is dropped (and no superuser privileges to setup event triggers)", async () => {
     // First, create a fresh database state
     await cleanupDatabase(client);
+
+    // create an alternate user with no superuser privileges
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'test_user') THEN
+          CREATE USER test_user WITH PASSWORD 'test_password' NOSUPERUSER;
+        END IF;
+        GRANT ALL PRIVILEGES ON DATABASE ragmatic_test to test_user;
+        GRANT ALL PRIVILEGES ON SCHEMA public to test_user;
+      END
+      $$;
+    `);
+    await client.query(`SET SESSION AUTHORIZATION test_user;`);
 
     // Create the documents table
     await client.query(`
       CREATE TABLE IF NOT EXISTS ${config.documentsTable} (
-    id SERIAL PRIMARY KEY,
-      content TEXT NOT NULL,
-        updated_at TIMESTAMP NOT NULL
-      );
-`);
+      id SERIAL PRIMARY KEY,
+        content TEXT NOT NULL,
+          updated_at TIMESTAMP NOT NULL
+        );
+    `);
 
     // Set up the ragmatic schema
-    await setup(config);
+    // use the alternate user
+    await setup({
+      ...config,
+      connectionString: `postgres://test_user:test_password@localhost:5432/ragmatic_test`,
+    });
     const schemaName = `${PREFIX}${config.trackerName} `;
 
     // Insert two test documents - we'll use ID 2 to verify that orphaned records with IDs
     // that don't conflict with new document IDs will be properly cleaned up
     const now = new Date();
     await client.query(
-      `INSERT INTO ${config.documentsTable} (content, updated_at)
-VALUES($1, $2), ($3, $4)`,
+      `INSERT INTO ${config.documentsTable} (content, updated_at) VALUES($1, $2), ($3, $4)`,
       ["Test document 1", now, "Test document 2", now],
     );
 
     // Insert work queue items for both documents
     await client.query(`
-      INSERT INTO ${schemaName}.work_queue(doc_id, vector_clock)
-VALUES(1, 1), (2, 1);
-`);
+      INSERT INTO ${schemaName}.work_queue(doc_id, vector_clock) VALUES(1, 1), (2, 1);`);
 
     // Insert dummy chunks for both documents
     await client.query(`
       INSERT INTO ${schemaName}.chunks(doc_id, index, chunk_hash, chunk_text, embedding)
-VALUES
-  (1, 0, 'hash1', 'doc1 chunk text', '[${Array(1536).fill(0).join(", ")}]':: vector),
-  (2, 0, 'hash2', 'doc2 chunk text', '[${Array(1536).fill(0).join(", ")}]'::vector);
-`);
+      VALUES
+        (1, 0, 'hash1', 'doc1 chunk text', '[${Array(1536).fill(0).join(", ")}]':: vector),
+        (2, 0, 'hash2', 'doc2 chunk text', '[${Array(1536).fill(0).join(", ")}]'::vector);
+      `);
 
     // Verify we have two documents each with their related records
     let docCount = await client.query(
@@ -597,16 +717,15 @@ VALUES
     // Recreate the documents table
     await client.query(`
       CREATE TABLE IF NOT EXISTS ${config.documentsTable} (
-  id SERIAL PRIMARY KEY,
-    content TEXT NOT NULL,
-      updated_at TIMESTAMP NOT NULL
-      );
-`);
+      id SERIAL PRIMARY KEY,
+        content TEXT NOT NULL,
+          updated_at TIMESTAMP NOT NULL
+          );
+    `);
 
     // Insert only one new document - this will reuse ID 1, but not ID 2
     await client.query(
-      `INSERT INTO ${config.documentsTable} (content, updated_at)
-VALUES($1, $2)`,
+      `INSERT INTO ${config.documentsTable} (content, updated_at) VALUES($1, $2)`,
       ["New document after table drop", now],
     );
 
@@ -614,7 +733,10 @@ VALUES($1, $2)`,
     // an alternative approach would be to drop the schema and recreate it
     // but users might not want to drop the schema and lose all the data every time they run setup
     // so setup behaves like a good up migration
-    await setup(config);
+    await setup({
+      ...config,
+      connectionString: `postgres://test_user:test_password@localhost:5432/ragmatic_test`,
+    });
 
     // Verify we only have records for document ID 1 now
     let docResult = await client.query(
@@ -626,14 +748,14 @@ VALUES($1, $2)`,
     // Verify shadows - should only have one for ID 1
     let shadowResult = await client.query(`
       SELECT doc_id, vector_clock FROM ${schemaName}.shadows ORDER BY doc_id
-  `);
+    `);
     expect(shadowResult.rows.length).toBe(1);
     expect(shadowResult.rows[0].doc_id).toBe(1);
 
     // Verify work queue is cleaned up fully
     let workQueueResult = await client.query(`
       SELECT doc_id FROM ${schemaName}.work_queue ORDER BY doc_id
-  `);
+    `);
     expect(workQueueResult.rows.length).toBe(0);
 
     // Verify chunks - ID 2 chunks cleaned up, ID 1 chunks remain

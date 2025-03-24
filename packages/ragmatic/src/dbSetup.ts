@@ -143,9 +143,26 @@ export async function setup(config: Config): Promise<void> {
         id SERIAL PRIMARY KEY,
         doc_id ${docIdType} NOT NULL,
         vector_clock BIGINT NOT NULL DEFAULT 1, -- At 1 billion increments per second, BIGINT lasts about 292 years.
-        UNIQUE (doc_id),
-        CONSTRAINT fk_documents_sync FOREIGN KEY (doc_id) REFERENCES ${documentsSchema}.${documentsTable} (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        UNIQUE (doc_id)
       );
+
+      -- Allow constraints to be created
+      DELETE FROM ${shadowTable}
+      WHERE
+        doc_id NOT IN (
+          SELECT
+            id
+          FROM
+            ${documentsSchema}.${documentsTable}
+        );
+
+      -- Always (re)create the constraint to ensure correctness
+      -- this is important when someone drops the documents table and recreates it
+      ALTER TABLE ${shadowTable}
+      DROP CONSTRAINT IF EXISTS fk_documents_sync;
+
+      ALTER TABLE ${shadowTable}
+      ADD CONSTRAINT fk_documents_sync FOREIGN KEY (doc_id) REFERENCES ${documentsSchema}.${documentsTable} (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
     `);
 
     // Create indexes on shadow table for efficient polling
@@ -196,9 +213,26 @@ export async function setup(config: Config): Promise<void> {
         chunk_text TEXT,
         chunk_blob BYTEA,
         chunk_json JSONB,
-        embedding VECTOR (${embeddingDimension}) NOT NULL,
-        CONSTRAINT fk_doc_chunks FOREIGN KEY (doc_id) REFERENCES ${documentsSchema}.${documentsTable} (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        embedding VECTOR (${embeddingDimension}) NOT NULL
       );
+
+      -- Allow constraints to be created
+      DELETE FROM ${chunksTable}
+      WHERE
+        doc_id NOT IN (
+          SELECT
+            id
+          FROM
+            ${documentsSchema}.${documentsTable}
+        );
+
+      -- Always (re)create the constraint to ensure correctness
+      -- this is important when someone drops the documents table and recreates it
+      ALTER TABLE ${chunksTable}
+      DROP CONSTRAINT IF EXISTS fk_doc_chunks;
+
+      ALTER TABLE ${chunksTable}
+      ADD CONSTRAINT fk_doc_chunks FOREIGN KEY (doc_id) REFERENCES ${documentsSchema}.${documentsTable} (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
     `);
 
     // Create indexes on chunks table for efficient polling
@@ -297,35 +331,62 @@ export async function setup(config: Config): Promise<void> {
       CHUNK_TABLE}_doc_id_index ON ${chunksTable} (doc_id, index);
     `);
 
-    // House keeping, keep these last so triggers and cascades take effect:
+    // If we have the permissions, listen for table drops and drop the ragmatic schema on cascade
+    // check if we have the permissions to create event triggers
+    const res = await client.query(sql`
+      SELECT
+        rolsuper
+      FROM
+        pg_roles
+      WHERE
+        rolname = current_user;
+    `);
+    if (res.rows[0].rolsuper) {
+      await client.query(sql`
+        DO $do$
+        BEGIN
+          -- Create the function
+          CREATE OR REPLACE FUNCTION ${schemaName}.drop_ragmatic_schema()
+          RETURNS event_trigger
+          LANGUAGE plpgsql
+          AS $func$
+          DECLARE
+            obj record;
+          BEGIN
+              -- Loop through dropped objects
+              FOR obj IN SELECT object_type, schema_name, object_name FROM pg_event_trigger_dropped_objects()
+              LOOP
+                  IF obj.object_type = 'table' AND obj.schema_name = '${documentsSchema}' AND obj.object_name = '${documentsTable}' THEN
+                      DROP SCHEMA IF EXISTS ${schemaName} CASCADE;
+                  END IF;
+              END LOOP;
+          END;
+          $func$;
+
+          -- Create the event trigger
+          DROP EVENT TRIGGER IF EXISTS sync_${schemaName}_on_drop_table;
+          CREATE EVENT TRIGGER sync_${schemaName}_on_drop_table
+          ON sql_drop
+          EXECUTE FUNCTION ${schemaName}.drop_ragmatic_schema();
+        END;
+        $do$;
+      `);
+      logger.debug(
+        "Event trigger created successfully. The ragmatic schema will be dropped if you drop the documents table.",
+      );
+    } else {
+      logger.warn(
+        "Client does not have superuser privileges. Event trigger for table drops was not created. You can safely ignore this, but note that this ragmatic schema will not be dropped if you drop the documents table.",
+      );
+    }
 
     // Clean up orphaned rows if documents table was previously dropped and recreated:
-    // The shadows, chunks rows are deleted by cascade delete on documents table rows
-    // HOWEVER if the documents table was DROPped, these won't be deleted
-    // so we need to clean up the orphaned rows here
-    await client.query(sql`
-      DELETE FROM ${chunksTable}
-      WHERE
-        doc_id NOT IN (
-          SELECT
-            id
-          FROM
-            ${documentsSchema}.${documentsTable}
-        );
-    `);
-    await client.query(sql`
-      DELETE FROM ${shadowTable}
-      WHERE
-        doc_id NOT IN (
-          SELECT
-            id
-          FROM
-            ${documentsSchema}.${documentsTable}
-        );
-    `);
+    // in general, shadows and chunks rows are deleted by cascade delete on delete to documents table rows
+    // HOWEVER if the documents table was DROPped, these may not be deleted (depends on privileges of the user)
     // also work queue rows need to be cleaned so that UNIQUE (doc_id, vector_clock) constraint is satisfied and vector_clock is monotonically increasing
     await client.query(sql` DELETE FROM ${schemaName}.${WORK_QUEUE_TABLE} `);
 
+    // House keeping, keep these last so triggers and cascades take effect:
     // Backfill shadow table with existing documents
     await client.query(sql`
       INSERT INTO

@@ -377,7 +377,10 @@ async function main() {
       }
     }
 
-    // Second step: Crawl website
+    // Second step: Start worker for embedding generation
+    const worker = await startWorker();
+
+    // Third step: Crawl website
     const domain = await input({
       message: "Enter the website domain to crawl (e.g., example.com):",
       default: "https://www.bbc.com",
@@ -473,10 +476,6 @@ async function main() {
     console.log(
       `Successfully stored ${pageCount} pages from ${domain}: ${urls.join(", ")}`,
     );
-
-    // Third step: Start worker for embedding generation
-    console.log("Now we need to process the pages to generate embeddings...");
-    const worker = await startWorker();
 
     console.log("Processing pages in the background...");
 
