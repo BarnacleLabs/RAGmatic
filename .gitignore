@@ -11,6 +11,7 @@ memory-bank
 .clineignore
 .cursorrules
 CLAUDE.md
+.claude
 TODO.md
 packages/ragmatic-cli
 packages/ragmatic-pipelines

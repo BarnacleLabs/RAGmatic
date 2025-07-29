@@ -367,7 +367,7 @@ export class Worker<T> {
             .map(
               (r: { doc_id: string; shadow_clock: number }) => sql`
                 (
-                  ${r.doc_id},
+                  '${r.doc_id}',
                   ${r.shadow_clock},
                   'pending'
                 )

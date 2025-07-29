@@ -531,6 +531,79 @@ describe("Worker Comprehensive Tests", () => {
         "twice",
       ]);
     });
+
+    it("should handle UUID-like doc_id values with scientific notation patterns", async () => {
+      // doc_id values like "123e9d71" were causing PostgreSQL parsing errors because of missing quotes
+
+      // Update the documents table to use UUID for id
+      await client.query(
+        `DROP TABLE IF EXISTS ${dbConfig.documentsTable} CASCADE`,
+      );
+      await client.query(`
+        CREATE TABLE ${dbConfig.documentsTable} (
+          id UUID PRIMARY KEY,
+          content TEXT NOT NULL,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // Re-run setup with UUID doc_id type
+      const uuidIdConfig = { ...dbConfig, docIdType: "UUID" };
+      await setup(uuidIdConfig);
+
+      // Create worker with updated config
+      const uuidWorker = createWorker();
+      await uuidWorker.start();
+
+      // Insert documents with UUID-like IDs that contain scientific notation patterns
+      const problematicIds = [
+        "123e9d71-abcd-4567-8901-234567890123", // Contains 'e' that looks like scientific notation
+        "456e7890-1234-5678-9012-345678901234",
+        "789e0123-4567-8901-2345-678901234567",
+      ];
+
+      for (const docId of problematicIds) {
+        await client.query(
+          `INSERT INTO ${dbConfig.documentsTable} (id, content, updated_at) VALUES ($1, $2, $3)`,
+          [docId, `Test content for ${docId}`, new Date()],
+        );
+      }
+
+      // This should not throw "trailing junk after numeric literal" error
+      await uuidWorker.createJobs();
+
+      // Verify jobs were created successfully for all problematic IDs
+      for (const docId of problematicIds) {
+        const queueRes = await client.query(
+          `SELECT * FROM ${schemaName}.work_queue WHERE doc_id = $1`,
+          [docId],
+        );
+        expect(queueRes.rows.length).toBe(1);
+        expect(queueRes.rows[0].status).toBe("pending");
+        expect(queueRes.rows[0].doc_id).toBe(docId);
+      }
+
+      // Test that jobs can be processed without SQL errors
+      const jobs = await uuidWorker.findAndClaimJobs();
+      expect(jobs.length).toBe(3);
+
+      // Process one job to ensure the fix works end-to-end
+      await uuidWorker.processJob(jobs[0]);
+
+      // Verify the job was processed successfully
+      const processedJobRes = await client.query(
+        `SELECT * FROM ${schemaName}.work_queue WHERE doc_id = $1`,
+        [jobs[0].doc_id],
+      );
+      expect(processedJobRes.rows[0].status).toBe("completed");
+
+      await uuidWorker.pause();
+
+      // Remove the test table
+      await client.query(
+        `DROP TABLE IF EXISTS ${dbConfig.documentsTable} CASCADE`,
+      );
+    });
   });
 
   describe("Retry Logic", () => {
